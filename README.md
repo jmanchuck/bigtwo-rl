@@ -862,13 +862,28 @@ The library now supports **configurable observation spaces**, allowing you to co
 
 ```python
 from bigtwo_rl.training import Trainer
-from bigtwo_rl.core import ObservationBuilder
+from bigtwo_rl.training.rewards import DefaultReward
+from bigtwo_rl.training.hyperparams import DefaultConfig
+from bigtwo_rl.core.observation_builder import (
+    ObservationBuilder,
+    minimal_observation,
+    standard_observation, 
+    memory_enhanced_observation,
+    strategic_observation
+)
 
-# String shortcuts (easy)
-trainer = Trainer(observation_config="minimal")    # 56 features
-trainer = Trainer(observation_config="standard")   # 109 features (default)
-trainer = Trainer(observation_config="memory")     # 161 features
-trainer = Trainer(observation_config="strategic")  # 325+ features
+# Explicit config instances (type-safe)
+trainer = Trainer(
+    reward_function=DefaultReward(),
+    hyperparams=DefaultConfig(),
+    observation_config=minimal_observation()       # 56 features
+)
+
+trainer = Trainer(
+    reward_function=DefaultReward(),
+    hyperparams=DefaultConfig(),
+    observation_config=standard_observation()      # 109 features (default)
+)
 
 # Custom builder (flexible)
 custom_config = (ObservationBuilder()
@@ -878,7 +893,11 @@ custom_config = (ObservationBuilder()
                 .with_game_context()          # Game phase awareness
                 .build())
 
-trainer = Trainer(observation_config=custom_config)
+trainer = Trainer(
+    reward_function=DefaultReward(),
+    hyperparams=DefaultConfig(),
+    observation_config=custom_config
+)
 ```
 
 ### Available Observation Features
@@ -950,21 +969,48 @@ config = (ObservationBuilder()
 Train models with different information levels and compete them:
 
 ```python
+from bigtwo_rl.training import Trainer
+from bigtwo_rl.training.rewards import DefaultReward  
+from bigtwo_rl.training.hyperparams import DefaultConfig
 from bigtwo_rl.evaluation import Tournament
+from bigtwo_rl.core.observation_builder import ObservationBuilder
 
-# Train different intelligence levels
-configs = {
-    "blind": ObservationBuilder().minimal().build(),
-    "memory": ObservationBuilder().standard().with_card_memory().build(), 
-    "strategic": ObservationBuilder().strategic().build()
-}
+# Train different intelligence levels with explicit configs
+blind_config = ObservationBuilder().minimal().build()
+memory_config = ObservationBuilder().standard().with_card_memory().build()
+strategic_config = ObservationBuilder().strategic().build()
 
 agents = []
-for name, config in configs.items():
-    trainer = Trainer(observation_config=config)
-    model, model_dir = trainer.train(25000, model_name=f"{name}_agent")
-    agents.append(PPOAgent(f"{model_dir}/best_model", f"{name.title()}-Agent", 
-                          observation_config=config))
+
+# Train blind agent
+trainer = Trainer(
+    reward_function=DefaultReward(),
+    hyperparams=DefaultConfig(),
+    observation_config=blind_config
+)
+model, model_dir = trainer.train(25000, model_name="blind_agent")
+agents.append(PPOAgent(f"{model_dir}/best_model", "Blind-Agent", 
+                      observation_config=blind_config))
+
+# Train memory agent  
+trainer = Trainer(
+    reward_function=DefaultReward(),
+    hyperparams=DefaultConfig(), 
+    observation_config=memory_config
+)
+model, model_dir = trainer.train(25000, model_name="memory_agent")
+agents.append(PPOAgent(f"{model_dir}/best_model", "Memory-Agent",
+                      observation_config=memory_config))
+
+# Train strategic agent
+trainer = Trainer(
+    reward_function=DefaultReward(),
+    hyperparams=DefaultConfig(),
+    observation_config=strategic_config  
+)
+model, model_dir = trainer.train(25000, model_name="strategic_agent")
+agents.append(PPOAgent(f"{model_dir}/best_model", "Strategic-Agent",
+                      observation_config=strategic_config))
 
 # Add baselines
 agents.extend([RandomAgent("Random"), GreedyAgent("Greedy")])
@@ -972,7 +1018,7 @@ agents.extend([RandomAgent("Random"), GreedyAgent("Greedy")])
 # Tournament to see which information level wins
 tournament = Tournament(agents)
 results = tournament.run(200)
-print("Information Level Advantage Analysis:")
+# Analyze which observation level provides the most advantage
 print(results["tournament_summary"])
 ```
 

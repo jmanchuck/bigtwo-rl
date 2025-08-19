@@ -1,13 +1,14 @@
 """Training infrastructure for Big Two PPO agents."""
 
 import os
-from typing import Optional, Any
+from typing import Optional
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.callbacks import EvalCallback, BaseCallback
 
 from ..core.rl_wrapper import BigTwoRLWrapper
+from ..core.observation_builder import ObservationConfig
 from .hyperparams import BaseConfig
 from .rewards import BaseReward
 from .opponent_pool import OpponentPool, EnvOpponentProvider
@@ -18,21 +19,21 @@ class ConfigurableBigTwoWrapper(BigTwoRLWrapper):
 
     def __init__(
         self,
+        observation_config: ObservationConfig,
         num_players=4,
         games_per_episode=10,
         reward_function=None,
         controlled_player: int = 0,
         opponent_provider=None,
-        observation_config: Optional[Any] = None,
     ):
         # Pass all configuration directly to parent
         super().__init__(
+            observation_config,
             num_players,
             games_per_episode,
             reward_function,
             controlled_player,
             opponent_provider,
-            observation_config,
         )
 
 
@@ -43,12 +44,12 @@ class Trainer:
         self,
         reward_function: BaseReward,
         hyperparams: BaseConfig,
+        observation_config: ObservationConfig,
         eval_freq: int = 5000,
         controlled_player: int = 0,
         opponent_mixture: Optional[dict] = None,
         snapshot_dir: Optional[str] = None,
         snapshot_every_steps: Optional[int] = None,
-        observation_config: Optional[Any] = None,
     ):
         """
         Initialize trainer.
@@ -81,11 +82,11 @@ class Trainer:
     def _make_env(self):
         """Create environment instance with configuration."""
         return ConfigurableBigTwoWrapper(
+            observation_config=self.observation_config,
             games_per_episode=self.config["games_per_episode"],
             reward_function=self.reward_function,
             controlled_player=self.controlled_player,
             opponent_provider=self._opponent_provider,
-            observation_config=self.observation_config,
         )
 
     def train(

@@ -1,12 +1,11 @@
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
-from typing import Dict, Any, Optional, Tuple, List, Union
+from typing import Dict, Any, Optional, Tuple, List
 from .bigtwo import ToyBigTwoFullRules
 from .observation_builder import (
     ObservationConfig,
     ObservationVectorizer,
-    standard_observation,
 )
 
 
@@ -15,12 +14,12 @@ class BigTwoRLWrapper(gym.Env):
 
     def __init__(
         self,
+        observation_config: ObservationConfig,
         num_players=4,
         games_per_episode=10,
         reward_function=None,
         controlled_player: int = 0,
         opponent_provider=None,
-        observation_config: Optional[Union[ObservationConfig, str]] = None,
     ):
         super().__init__()
         self.env = ToyBigTwoFullRules(num_players)
@@ -35,31 +34,8 @@ class BigTwoRLWrapper(gym.Env):
         self.opponent_provider = opponent_provider
         self._episode_opponents = None  # lazily created per reset
 
-        # Set up observation configuration
-        if observation_config is None:
-            self.obs_config = standard_observation()  # Backward compatible default
-        elif isinstance(observation_config, str):
-            # Handle string shortcuts
-            from .observation_builder import (
-                minimal_observation,
-                memory_enhanced_observation,
-                strategic_observation,
-            )
-
-            config_map = {
-                "minimal": minimal_observation(),
-                "standard": standard_observation(),
-                "memory": memory_enhanced_observation(),
-                "strategic": strategic_observation(),
-            }
-            if observation_config not in config_map:
-                raise ValueError(
-                    f"Unknown observation config: {observation_config}. "
-                    f"Available: {list(config_map.keys())}"
-                )
-            self.obs_config = config_map[observation_config]
-        else:
-            self.obs_config = observation_config
+        # Set up observation configuration - must be explicit ObservationConfig instance
+        self.obs_config = observation_config
 
         # Initialize observation vectorizer
         self.obs_vectorizer = ObservationVectorizer(self.obs_config)

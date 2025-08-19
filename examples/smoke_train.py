@@ -1,12 +1,14 @@
 from bigtwo_rl.training import Trainer
 from bigtwo_rl.training.rewards import ScoreMarginReward
 from bigtwo_rl.training.hyperparams import DefaultConfig
+from bigtwo_rl import standard_observation
 
 
 def main():
     trainer = Trainer(
         reward_function=ScoreMarginReward(),
         hyperparams=DefaultConfig(),
+        observation_config=standard_observation(),
         controlled_player=0,
         opponent_mixture={"snapshots": 0.0, "greedy": 0.5, "random": 0.5},
         snapshot_dir="./models/smoke",

@@ -17,6 +17,7 @@ from bigtwo_rl.training import Trainer
 from bigtwo_rl.training.rewards import BaseReward
 from bigtwo_rl.training.hyperparams import FastExperimentalConfig
 from bigtwo_rl.evaluation import Evaluator
+from bigtwo_rl import standard_observation
 
 
 class FastLearningReward(BaseReward):
@@ -97,6 +98,7 @@ def compare_immediate_vs_delayed_training():
     immediate_trainer = Trainer(
         reward_function=FastLearningReward(),
         hyperparams=FastExperimentalConfig(),
+        observation_config=standard_observation(),
     )
     immediate_model, immediate_dir = immediate_trainer.train(
         total_timesteps=train_steps, model_name="immediate_reward_demo"
@@ -108,6 +110,7 @@ def compare_immediate_vs_delayed_training():
     delayed_trainer = Trainer(
         reward_function=DelayedOnlyReward(),
         hyperparams=FastExperimentalConfig(),
+        observation_config=standard_observation(),
     )
     delayed_model, delayed_dir = delayed_trainer.train(
         total_timesteps=train_steps, model_name="delayed_reward_demo"

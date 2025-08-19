@@ -13,7 +13,14 @@ __version__ = "0.1.0"
 
 # Main API exports
 from .core import BigTwoRLWrapper, ToyBigTwoFullRules
-from .core.observation_builder import ObservationBuilder, ObservationConfig
+from .core.observation_builder import (
+    ObservationBuilder,
+    ObservationConfig,
+    minimal_observation,
+    standard_observation,
+    memory_enhanced_observation,
+    strategic_observation,
+)
 from .agents import BaseAgent, RandomAgent, GreedyAgent, PPOAgent
 
 # Training API exports - import these explicitly for training
@@ -26,6 +33,10 @@ __all__ = [
     "ToyBigTwoFullRules",
     "ObservationBuilder",
     "ObservationConfig",
+    "minimal_observation",
+    "standard_observation",
+    "memory_enhanced_observation",
+    "strategic_observation",
     "BaseAgent",
     "RandomAgent",
     "GreedyAgent",

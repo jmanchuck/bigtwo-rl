@@ -16,6 +16,7 @@ from bigtwo_rl.training.hyperparams import (
     AggressiveConfig,
     ConservativeConfig,
 )
+from bigtwo_rl import standard_observation
 
 
 def main():
@@ -24,18 +25,26 @@ def main():
 
     # Example 1: Basic training with default settings
     print("\n1. Basic Training (Default Config + Default Reward)")
-    trainer = Trainer(reward_function=DefaultReward(), hyperparams=DefaultConfig())
+    trainer = Trainer(
+        reward_function=DefaultReward(),
+        hyperparams=DefaultConfig(),
+        observation_config=standard_observation()
+    )
 
     # Example 2: Aggressive training with sparse rewards
     print("\n2. Fast Experimental Training")
     fast_trainer = Trainer(
-        reward_function=SparseReward(), hyperparams=AggressiveConfig()
+        reward_function=SparseReward(),
+        hyperparams=AggressiveConfig(),
+        observation_config=standard_observation()
     )
 
     # Example 3: Conservative training with score margin rewards
     print("\n3. Conservative Training")
     conservative_trainer = Trainer(
-        reward_function=ScoreMarginReward(), hyperparams=ConservativeConfig()
+        reward_function=ScoreMarginReward(),
+        hyperparams=ConservativeConfig(),
+        observation_config=standard_observation()
     )
 
     print("\n✅ Key Benefits of New API:")
