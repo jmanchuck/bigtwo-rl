@@ -91,7 +91,7 @@ def play_single_game(agents: List[BaseAgent], env: BigTwoRLWrapper):
         if hasattr(env.env, "done") and env.env.done:
             # Find winner (player with 0 cards)
             for p in range(env.env.num_players):
-                if len(env.env.hands[p]) == 0:
+                if np.sum(env.env.hands[p]) == 0:
                     last_winner = p
                     break
 
@@ -106,11 +106,11 @@ def play_single_game(agents: List[BaseAgent], env: BigTwoRLWrapper):
                     agent.record_game_result(won)
 
             # Capture cards remaining for each player
-            cards_remaining = [len(env.env.hands[p]) for p in range(env.env.num_players)]
+            cards_remaining = [np.sum(env.env.hands[p]) for p in range(env.env.num_players)]
             return winner_idx, reward, cards_remaining
 
     # No winner (should not happen); capture current hand sizes
-    cards_remaining = [len(env.env.hands[p]) for p in range(env.env.num_players)]
+    cards_remaining = [np.sum(env.env.hands[p]) for p in range(env.env.num_players)]
     return -1, 0, cards_remaining
 
 

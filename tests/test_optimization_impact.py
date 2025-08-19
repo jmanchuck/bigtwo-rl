@@ -68,11 +68,8 @@ def test_comprehensive_performance():
     print("\n=== Test 3: Cache Efficiency ===")
     env.reset()
     
-    cache_hits = 0
-    cache_misses = 0
-    
-    # Check if we can access cache stats (for educational purposes)
-    initial_cache_size = len(env.env._hand_type_cache)
+    # Check LRU cache stats (for educational purposes)
+    initial_cache_info = env.env._identify_hand_type_cached.cache_info()
     
     for _ in range(100):
         action_mask = env.get_action_mask()
@@ -85,10 +82,11 @@ def test_comprehensive_performance():
             if done or truncated:
                 env.reset()
     
-    final_cache_size = len(env.env._hand_type_cache)
+    final_cache_info = env.env._identify_hand_type_cached.cache_info()
     
-    print(f"✓ Hand type cache grew from {initial_cache_size} to {final_cache_size} entries")
-    print(f"✓ Cache efficiency: {final_cache_size - initial_cache_size} new entries for 100 actions")
+    print(f"✓ LRU cache hits: {final_cache_info.hits - initial_cache_info.hits}")
+    print(f"✓ LRU cache misses: {final_cache_info.misses - initial_cache_info.misses}")
+    print(f"✓ Cache size: {final_cache_info.currsize}/{final_cache_info.maxsize}")
     
     return elapsed
 

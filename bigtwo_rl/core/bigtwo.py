@@ -54,14 +54,18 @@ class ToyBigTwoFullRules:
         if seed:
             random.seed(seed)
         # Deal cards
-        deck = list(range(52))  # 0..51 = 13 ranks × 4 suits
-        random.shuffle(deck)
-        self.hands = [deck[i :: self.num_players] for i in range(self.num_players)]
-        for h in self.hands:
-            h.sort()
+        deck = np.arange(52)  # 0..51 = 13 ranks × 4 suits
+        np.random.shuffle(deck)
+        
+        # Initialize hands as boolean numpy arrays
+        self.hands = np.zeros((self.num_players, 52), dtype=bool)
+        for i in range(self.num_players):
+            player_cards = deck[i::self.num_players]
+            self.hands[i, player_cards] = True
+            
         # Game state
         self.current_player = 0
-        self.last_play = None  # (cards, player)
+        self.last_play = None  # (cards_array, player)
         self.passes_in_row = 0
         self.done = False
         return self._get_obs()
@@ -88,18 +92,25 @@ class ToyBigTwoFullRules:
         return self._identify_hand_type_cached(cards_tuple)
     
     def _identify_hand_type_uncached(self, cards):
-        """Actual hand type identification without caching."""
+        """Actual hand type identification using vectorized operations."""
         if len(cards) == 1:
             return "single", self._card_value(cards[0]) * 4 + self._suit(cards[0])
         elif len(cards) == 2:
-            if self._rank(cards[0]) == self._rank(cards[1]):
-                return "pair", self._card_value(cards[0]) * 4 + max(self._suit(cards[0]), self._suit(cards[1]))
+            # Vectorized rank and suit extraction
+            cards_arr = np.array(cards)
+            ranks = cards_arr // 4
+            suits = cards_arr % 4
+            if ranks[0] == ranks[1]:
+                return "pair", self._card_value(cards[0]) * 4 + max(suits)
             else:
                 return "invalid", 0
         elif len(cards) == 3:
-            ranks = [self._rank(c) for c in cards]
-            if len(set(ranks)) == 1:  # All same rank
-                return "trips", self._card_value(cards[0]) * 4 + max(self._suit(c) for c in cards)
+            # Vectorized rank check
+            cards_arr = np.array(cards)
+            ranks = cards_arr // 4
+            suits = cards_arr % 4
+            if len(np.unique(ranks)) == 1:  # All same rank
+                return "trips", self._card_value(cards[0]) * 4 + max(suits)
             else:
                 return "invalid", 0
         elif len(cards) == 5:
@@ -108,14 +119,16 @@ class ToyBigTwoFullRules:
             return "invalid", 0
     
     def _identify_five_card_hand(self, cards):
-        """Identify 5-card hand types and return strength."""
-        ranks = sorted([self._rank(c) for c in cards])
-        suits = [self._suit(c) for c in cards]
-        rank_counts = {}
-        for r in ranks:
-            rank_counts[r] = rank_counts.get(r, 0) + 1
+        """Identify 5-card hand types using vectorized operations."""
+        cards_arr = np.array(cards)
+        ranks = cards_arr // 4
+        suits = cards_arr % 4
         
-        is_flush = len(set(suits)) == 1
+        # Vectorized rank counting
+        rank_counts = np.bincount(ranks, minlength=13)
+        unique_counts = rank_counts[rank_counts > 0]
+        
+        is_flush = len(np.unique(suits)) == 1
         is_straight = self._is_straight(ranks)
         
         # Check for straight flush
@@ -124,13 +137,13 @@ class ToyBigTwoFullRules:
             return "straight_flush", 50000 + self._card_value(highest_card) * 4 + self._suit(highest_card)
         
         # Check for four of a kind
-        if 4 in rank_counts.values():
-            four_rank = [r for r, count in rank_counts.items() if count == 4][0]
+        if 4 in unique_counts:
+            four_rank = np.where(rank_counts == 4)[0][0]
             return "four_of_a_kind", 40000 + self._card_value_from_rank(four_rank) * 4
         
         # Check for full house
-        if 3 in rank_counts.values() and 2 in rank_counts.values():
-            three_rank = [r for r, count in rank_counts.items() if count == 3][0]
+        if 3 in unique_counts and 2 in unique_counts:
+            three_rank = np.where(rank_counts == 3)[0][0]
             return "full_house", 30000 + self._card_value_from_rank(three_rank) * 4
         
         # Check for flush
@@ -151,59 +164,60 @@ class ToyBigTwoFullRules:
         return self._RANK_TO_VALUE[rank]
     
     def _is_straight(self, ranks):
-        """Check if ranks form a valid Big Two straight."""
+        """Check if ranks form a valid Big Two straight using vectorized operations."""
         # Convert to Big Two values for straight checking
-        values = [self._card_value_from_rank(r) for r in ranks]
-        values.sort()
+        values = np.array([self._card_value_from_rank(r) for r in ranks])
+        values = np.sort(values)
         
-        # Check for regular straight
-        for i in range(1, len(values)):
-            if values[i] != values[i-1] + 1:
-                break
-        else:
+        # Check for regular straight using vectorized operations
+        diffs = np.diff(values)
+        if np.all(diffs == 1):
             return True
         
         # Check for A-2-3-4-5 straight (values would be [0,1,2,11,12])
-        if values == [0, 1, 2, 11, 12]:  # 3-4-5-A-2
+        ace_low_straight = np.array([0, 1, 2, 11, 12])
+        if np.array_equal(values, ace_low_straight):
             return True
             
         return False
 
     def legal_moves(self, player):
         """Generate all legal singles, pairs, trips, and 5-card hands."""
-        hand = self.hands[player]
+        hand_array = self.hands[player]  # boolean array
+        hand_cards = np.where(hand_array)[0]  # get actual card indices
         moves = []
 
         # Singles
-        for c in hand:
+        for c in hand_cards:
             if self._beats([c]):
                 moves.append([c])
 
         # Pairs (vectorized)
-        pairs = self._find_pairs_vectorized(hand)
+        pairs = self._find_pairs_vectorized(hand_cards)
         for pair in pairs:
             if self._beats(pair):
                 moves.append(pair)
 
         # Trips (vectorized)
-        trips = self._find_trips_vectorized(hand)
+        trips = self._find_trips_vectorized(hand_cards)
         for trip in trips:
             if self._beats(trip):
                 moves.append(trip)
 
         # 5-card hands (with early exit heuristics)
-        if len(hand) >= 5:
+        if len(hand_cards) >= 5:
             # Early exit: If last play is 5-card, check if we can even beat it
-            if self.last_play is not None and len(self.last_play[0]) == 5:
-                last_type, last_strength = self._identify_hand_type(self.last_play[0])
+            if self.last_play is not None and np.sum(self.last_play[0]) == 5:
+                last_play_cards = np.where(self.last_play[0])[0]
+                last_type, last_strength = self._identify_hand_type(last_play_cards)
                 # Skip expensive computation if we clearly can't beat it
-                if not self._can_potentially_beat_5_card(hand, last_type, last_strength):
+                if not self._can_potentially_beat_5_card(hand_cards, last_type, last_strength):
                     pass  # Skip 5-card generation entirely
                 else:
-                    moves.extend(self._generate_5_card_hands_optimized(hand))
+                    moves.extend(self._generate_5_card_hands_optimized(hand_cards))
             else:
                 # No last play or last play wasn't 5-card, generate all 5-card hands
-                moves.extend(self._generate_5_card_hands_optimized(hand))
+                moves.extend(self._generate_5_card_hands_optimized(hand_cards))
 
         # Always allowed to pass (unless starting new trick)
         if self.last_play is not None:
@@ -217,12 +231,13 @@ class ToyBigTwoFullRules:
             return True
         if play == []:  # pass is always legal (but handled separately)
             return True
-        if len(play) != len(self.last_play[0]):
+        last_play_cards = np.where(self.last_play[0])[0]
+        if len(play) != len(last_play_cards):
             return False
         
         # Get hand types and strengths
         play_type, play_strength = self._identify_hand_type(play)
-        last_type, last_strength = self._identify_hand_type(self.last_play[0])
+        last_type, last_strength = self._identify_hand_type(last_play_cards)
         
         # Invalid hands can't beat anything
         if play_type == "invalid":
@@ -260,9 +275,12 @@ class ToyBigTwoFullRules:
         move = moves[action]
 
         if move:  # played cards
-            for c in move:
-                self.hands[player].remove(c)
-            self.last_play = (move, player)
+            # Remove played cards from hand (set to False)
+            self.hands[player, move] = False
+            # Store last play as boolean array
+            last_play_array = np.zeros(52, dtype=bool)
+            last_play_array[move] = True
+            self.last_play = (last_play_array, player)
             self.passes_in_row = 0
         else:  # PASS
             self.passes_in_row += 1
@@ -273,11 +291,11 @@ class ToyBigTwoFullRules:
 
         # Check win
         reward = [0] * self.num_players
-        if len(self.hands[player]) == 0:
+        if np.sum(self.hands[player]) == 0:  # no cards left
             self.done = True
             # New reward structure
             for p in range(self.num_players):
-                cards_left = len(self.hands[p])
+                cards_left = np.sum(self.hands[p])  # count True values
                 if p == player:
                     # Winner gets massive reward
                     reward[p] = 5
@@ -301,7 +319,7 @@ class ToyBigTwoFullRules:
         # Quick heuristics to avoid expensive computation
         
         # Count cards by suit and rank using vectorized operations
-        if not hand:
+        if len(hand) == 0:
             return False
         
         hand_arr = np.array(hand)
@@ -482,34 +500,55 @@ class ToyBigTwoFullRules:
                 yield [item] + rest
     
     def _find_pairs_vectorized(self, hand):
-        """Find all pairs using numpy operations for speed."""
+        """Find all pairs using fully vectorized numpy operations."""
         if len(hand) < 2:
             return []
         
         hand_arr = np.array(hand)
         ranks = hand_arr // 4  # Vectorized rank calculation
         
+        # Find all unique ranks and their counts
+        unique_ranks, counts = np.unique(ranks, return_counts=True)
+        
         pairs = []
-        # Find consecutive equal ranks (since hand is sorted)
-        for i in range(len(ranks) - 1):
-            if ranks[i] == ranks[i + 1]:
-                pairs.append([hand[i], hand[i + 1]])
+        # For each rank with 2+ cards, generate pairs
+        for rank, count in zip(unique_ranks, counts):
+            if count >= 2:
+                # Get all cards of this rank
+                rank_cards = hand_arr[ranks == rank]
+                # Generate all pairs from this rank (just the first two for now)
+                pairs.append([rank_cards[0], rank_cards[1]])
+                # If 3+ cards, add more pairs if needed
+                if count >= 3:
+                    pairs.append([rank_cards[0], rank_cards[2]])
+                    pairs.append([rank_cards[1], rank_cards[2]])
+                if count >= 4:
+                    pairs.append([rank_cards[2], rank_cards[3]])
         
         return pairs
     
     def _find_trips_vectorized(self, hand):
-        """Find all trips using numpy operations for speed."""
+        """Find all trips using fully vectorized numpy operations."""
         if len(hand) < 3:
             return []
         
         hand_arr = np.array(hand)
         ranks = hand_arr // 4  # Vectorized rank calculation
         
+        # Find all unique ranks and their counts
+        unique_ranks, counts = np.unique(ranks, return_counts=True)
+        
         trips = []
-        # Find consecutive equal ranks (since hand is sorted)
-        for i in range(len(ranks) - 2):
-            if ranks[i] == ranks[i + 1] == ranks[i + 2]:
-                trips.append([hand[i], hand[i + 1], hand[i + 2]])
+        # For each rank with 3+ cards, generate trips
+        for rank, count in zip(unique_ranks, counts):
+            if count >= 3:
+                # Get all cards of this rank
+                rank_cards = hand_arr[ranks == rank]
+                # Add the first trip
+                trips.append([rank_cards[0], rank_cards[1], rank_cards[2]])
+                # If 4 cards, add the second trip
+                if count >= 4:
+                    trips.append([rank_cards[0], rank_cards[1], rank_cards[3]])
         
         return trips
     
@@ -549,15 +588,14 @@ class ToyBigTwoFullRules:
         """Observation: current hand + full previous play as binary vectors."""
         player = self.current_player
         
-        # Current hand as binary vector
-        hand_obs = np.zeros(52, dtype=np.int8)
-        hand_obs[self.hands[player]] = 1
+        # Current hand as binary vector (already in correct format)
+        hand_obs = self.hands[player].astype(np.int8)
         
         # Previous play as binary vector
         last_play_obs = np.zeros(52, dtype=np.int8)
         last_play_exists = 0
         if self.last_play is not None:
-            last_play_obs[self.last_play[0]] = 1
+            last_play_obs = self.last_play[0].astype(np.int8)
             last_play_exists = 1
             
         return {

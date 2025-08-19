@@ -5,7 +5,8 @@ import sys
 import os
 from stable_baselines3 import PPO
 from bigtwo_rl.core.bigtwo import ToyBigTwoFullRules
-from bigtwo_rl.core.card_utils import hand_to_strings, format_hand
+from bigtwo_rl.core.card_utils import hand_to_strings, format_hand, hand_array_to_strings, format_hand_array
+import numpy as np
 
 
 class HumanVsAgentGame:
@@ -23,18 +24,19 @@ class HumanVsAgentGame:
         print(f"Current player: {current_player_name}")
 
         if self.env.last_play:
-            last_cards = hand_to_strings(self.env.last_play[0])
+            last_play_cards = np.where(self.env.last_play[0])[0]
+            last_cards = hand_to_strings(last_play_cards)
             last_player = "YOU" if self.env.last_play[1] == self.human_player else f"AGENT {self.env.last_play[1]}"
             print(f"Last play: {' '.join(last_cards)} (by {last_player})")
         else:
             print("Last play: None (start new trick)")
 
         # Show all hand sizes
-        hand_sizes = [len(hand) for hand in self.env.hands]
+        hand_sizes = [np.sum(hand) for hand in self.env.hands]
         print(
             f"Hand sizes: YOU={hand_sizes[0]}, AGENT1={hand_sizes[1]}, AGENT2={hand_sizes[2]}, AGENT3={hand_sizes[3]}"
         )
-        print(f"Your hand: {format_hand(self.env.hands[self.human_player])}")
+        print(f"Your hand: {format_hand_array(self.env.hands[self.human_player])}")
         print("=" * 50)
 
     def get_human_move(self):
@@ -88,7 +90,7 @@ class HumanVsAgentGame:
 
         hand_binary = raw_obs["hand"].astype(np.float32)
         last_play_binary = raw_obs["last_play"].astype(np.float32)
-        hand_sizes = np.array([len(h) for h in self.env.hands], dtype=np.float32)
+        hand_sizes = np.array([np.sum(h) for h in self.env.hands], dtype=np.float32)
         last_play_exists = np.array([raw_obs["last_play_exists"]], dtype=np.float32)
         obs = np.concatenate([hand_binary, last_play_binary, hand_sizes, last_play_exists])
 
@@ -155,7 +157,7 @@ class HumanVsAgentGame:
         # Find who won (who has 0 cards)
         winner = None
         for i, hand in enumerate(self.env.hands):
-            if len(hand) == 0:
+            if np.sum(hand) == 0:
                 winner = i
                 break
 
@@ -166,7 +168,7 @@ class HumanVsAgentGame:
         else:
             print("Game ended unexpectedly.")
 
-        hand_sizes = [len(hand) for hand in self.env.hands]
+        hand_sizes = [np.sum(hand) for hand in self.env.hands]
         print(
             f"Final hand sizes - YOU: {hand_sizes[0]}, AGENT1: {hand_sizes[1]}, AGENT2: {hand_sizes[2]}, AGENT3: {hand_sizes[3]}"
         )

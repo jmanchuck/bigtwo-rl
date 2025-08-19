@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Test new reward structure."""
 
-from bigtwo_rl.core.bigtwo import ToyBigTwoSinglesPairs
+from bigtwo_rl.core.bigtwo import ToyBigTwoFullRules
 
 def test_reward_structure():
     """Test different end-game scenarios."""
-    env = ToyBigTwoSinglesPairs(4)
+    env = ToyBigTwoFullRules(4)
     
     # Simulate end game scenarios
     test_cases = [
@@ -16,16 +16,17 @@ def test_reward_structure():
     ]
     
     for hand_sizes, description in test_cases:
-        # Manually set hand sizes for testing
-        env.hands = [[] for _ in range(4)]
+        # Manually set hand sizes for testing with numpy arrays
+        import numpy as np
+        env.hands = np.zeros((4, 52), dtype=bool)
         for i, size in enumerate(hand_sizes):
-            env.hands[i] = list(range(size))  # Fill with dummy cards
+            env.hands[i, :size] = True  # Fill first 'size' positions with True
         
         # Simulate player 0 winning
         rewards = [0] * 4
         winner = 0
         for p in range(4):
-            cards_left = len(env.hands[p])
+            cards_left = np.sum(env.hands[p])
             if p == winner:
                 rewards[p] = 100
             else:

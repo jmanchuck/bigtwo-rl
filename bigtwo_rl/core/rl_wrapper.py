@@ -109,9 +109,8 @@ class BigTwoRLWrapper(gym.Env):
         last_play_binary = raw_obs["last_play"].astype(np.float32)
         
         # Hand sizes for all players (4 features, padded with 0s if fewer players) - vectorized
-        raw_hand_sizes = np.array([len(h) for h in self.env.hands], dtype=np.float32)
         hand_sizes = np.zeros(4, dtype=np.float32)
-        hand_sizes[:len(raw_hand_sizes)] = raw_hand_sizes
+        hand_sizes[:self.env.num_players] = np.sum(self.env.hands, axis=1, dtype=np.float32)
         
         # Last play exists flag (1 feature)
         last_play_exists = np.array([raw_obs["last_play_exists"]], dtype=np.float32)
@@ -121,8 +120,8 @@ class BigTwoRLWrapper(gym.Env):
     def _get_simple_state_hash(self):
         """Create a lightweight hash of game state for cache invalidation."""
         # Use turn counter and hand sizes instead of expensive tuple creation
-        hand_sizes = tuple(len(h) for h in self.env.hands)
-        last_play_len = len(self.env.last_play[0]) if self.env.last_play else 0
+        hand_sizes = tuple(np.sum(self.env.hands, axis=1))
+        last_play_len = np.sum(self.env.last_play[0]) if self.env.last_play else 0
         return (self.env.current_player, hand_sizes, last_play_len, self._cache_turn_counter)
     
     def _get_legal_moves_cached(self, player):
