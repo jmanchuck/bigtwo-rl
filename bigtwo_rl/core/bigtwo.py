@@ -1,6 +1,7 @@
 import random
 import numpy as np
 from itertools import combinations
+from functools import lru_cache
 
 
 class ToyBigTwoFullRules:
@@ -47,8 +48,6 @@ class ToyBigTwoFullRules:
     
     def __init__(self, num_players=4):
         self.num_players = num_players
-        # Memoization cache for hand type identification
-        self._hand_type_cache = {}
         self.reset()
 
     def reset(self, seed=None):
@@ -65,8 +64,6 @@ class ToyBigTwoFullRules:
         self.last_play = None  # (cards, player)
         self.passes_in_row = 0
         self.done = False
-        # Clear hand type cache on reset
-        self._hand_type_cache.clear()
         return self._get_obs()
 
     def _rank(self, card):
@@ -79,23 +76,16 @@ class ToyBigTwoFullRules:
         """Get Big Two card value where 2 is highest (12), A is second highest (11), etc."""
         return self._VALUE_TABLE[card]
         
+    @lru_cache(maxsize=50000)
+    def _identify_hand_type_cached(self, cards_tuple):
+        """Cached hand type identification using LRU cache."""
+        return self._identify_hand_type_uncached(list(cards_tuple))
+    
     def _identify_hand_type(self, cards):
         """Identify the type of hand and return (hand_type, strength_value)."""
-        # Use memoization for frequently computed hand types
-        cards_key = tuple(sorted(cards))
-        if cards_key in self._hand_type_cache:
-            return self._hand_type_cache[cards_key]
-        
-        result = self._identify_hand_type_uncached(cards)
-        
-        # Limit cache size to prevent memory issues during long training
-        if len(self._hand_type_cache) > 10000:
-            # Clear oldest half of cache (simple eviction strategy)
-            items = list(self._hand_type_cache.items())
-            self._hand_type_cache = dict(items[5000:])
-        
-        self._hand_type_cache[cards_key] = result
-        return result
+        # Use LRU cache for frequently computed hand types
+        cards_tuple = tuple(sorted(cards))
+        return self._identify_hand_type_cached(cards_tuple)
     
     def _identify_hand_type_uncached(self, cards):
         """Actual hand type identification without caching."""
@@ -306,10 +296,9 @@ class ToyBigTwoFullRules:
         self.current_player = (self.current_player + 1) % self.num_players
         return self._get_obs(), reward, self.done, {}
 
-    def _can_potentially_beat_5_card(self, hand, last_type, last_strength):
+    def _can_potentially_beat_5_card(self, hand, last_type, _last_strength):
         """Quick check if hand could potentially beat a 5-card play."""
         # Quick heuristics to avoid expensive computation
-        # Note: last_strength could be used for more precise checks but heuristics are sufficient
         
         # Count cards by suit and rank using vectorized operations
         if not hand:
@@ -359,90 +348,138 @@ class ToyBigTwoFullRules:
         return True  # Default to checking if unsure
     
     def _generate_5_card_hands_optimized(self, hand):
-        """Generate 5-card hands with heuristic optimizations."""
+        """Generate 5-card hands with smart pre-filtering to avoid expensive combinations."""
         moves = []
         
-        # Group cards by suit and rank using vectorized operations
-        suits = self._group_cards_by_suit_vectorized(hand)
-        ranks = self._group_cards_by_rank_vectorized(hand)
+        # Quick exit if not enough cards
+        if len(hand) < 5:
+            return moves
         
-        # Generate potential hands more efficiently
+        # Pre-analyze hand structure using vectorized operations
+        hand_arr = np.array(hand)
+        suits_arr = hand_arr % 4
+        ranks_arr = hand_arr // 4
         
-        # 1. Check for flushes (only for suits with 5+ cards)
-        for suit, suit_cards in suits.items():
-            if len(suit_cards) >= 5:
-                for combo in combinations(suit_cards, 5):
-                    combo_list = list(combo)
-                    hand_type, _ = self._identify_hand_type(combo_list)
-                    if hand_type != "invalid" and self._beats(combo_list):
+        # Vectorized counting
+        unique_suits, suit_counts = np.unique(suits_arr, return_counts=True)
+        unique_ranks, rank_counts = np.unique(ranks_arr, return_counts=True)
+        
+        # Create efficient lookups
+        suit_dict = dict(zip(unique_suits, suit_counts))
+        rank_dict = dict(zip(unique_ranks, rank_counts))
+        
+        # 1. FLUSHES: Only check suits with 5+ cards
+        flush_suits = [suit for suit, count in suit_dict.items() if count >= 5]
+        for suit in flush_suits:
+            suit_cards = hand_arr[suits_arr == suit].tolist()
+            self._generate_flush_combinations(suit_cards, moves)
+        
+        # 2. FOUR OF A KIND: Only check ranks with 4+ cards
+        quad_ranks = [rank for rank, count in rank_dict.items() if count >= 4]
+        for rank in quad_ranks:
+            rank_cards = hand_arr[ranks_arr == rank].tolist()
+            other_cards = hand_arr[ranks_arr != rank].tolist()
+            for quad_combo in combinations(rank_cards, 4):
+                for kicker in other_cards:
+                    combo_list = list(quad_combo) + [kicker]
+                    if self._beats(combo_list):
                         moves.append(combo_list)
         
-        # 2. Check for pairs/trips combinations (full house potential)
-        pairs = []
-        trips = []
-        quads = []
+        # 3. FULL HOUSE: Only check ranks with 3+ and 2+ cards
+        trip_ranks = [rank for rank, count in rank_dict.items() if count >= 3]
+        pair_ranks = [rank for rank, count in rank_dict.items() if count >= 2]
         
-        for rank, rank_cards in ranks.items():
-            if len(rank_cards) >= 4:
-                quads.extend(combinations(rank_cards, 4))
-            elif len(rank_cards) >= 3:
-                trips.extend(combinations(rank_cards, 3))
-            elif len(rank_cards) >= 2:
-                pairs.extend(combinations(rank_cards, 2))
+        for trip_rank in trip_ranks:
+            trip_cards = hand_arr[ranks_arr == trip_rank].tolist()
+            for trip_combo in combinations(trip_cards, 3):
+                for pair_rank in pair_ranks:
+                    if pair_rank != trip_rank:
+                        pair_cards = hand_arr[ranks_arr == pair_rank].tolist()
+                        for pair_combo in combinations(pair_cards, 2):
+                            combo_list = list(trip_combo) + list(pair_combo)
+                            if self._beats(combo_list):
+                                moves.append(combo_list)
         
-        # Generate four of a kind + 1
-        for quad in quads:
-            remaining = [c for c in hand if c not in quad]
-            for single in remaining:
-                combo_list = list(quad) + [single]
-                if self._beats(combo_list):
-                    moves.append(combo_list)
-        
-        # Generate full house (trip + pair)
-        for trip in trips:
-            remaining = [c for c in hand if c not in trip]
-            remaining_ranks = {}
-            for card in remaining:
-                rank = self._rank(card)
-                if rank not in remaining_ranks:
-                    remaining_ranks[rank] = []
-                remaining_ranks[rank].append(card)
-            
-            for rank, rank_cards in remaining_ranks.items():
-                if len(rank_cards) >= 2:
-                    for pair in combinations(rank_cards, 2):
-                        combo_list = list(trip) + list(pair)
-                        if self._beats(combo_list):
-                            moves.append(combo_list)
-        
-        # 3. Check for straights (check if any 5 consecutive ranks exist)
-        sorted_ranks = sorted(ranks.keys())
-        has_potential_straight = False
-        
-        # Check for any sequence of 5 consecutive ranks
-        if len(sorted_ranks) >= 5:
-            for i in range(len(sorted_ranks) - 4):
-                if sorted_ranks[i+4] - sorted_ranks[i] == 4:
-                    has_potential_straight = True
-                    break
-            
-            # Also check for A-2-3-4-5 straight (ranks 0,1,2,11,12)
-            if set([0, 1, 2, 11, 12]).issubset(set(sorted_ranks)):
-                has_potential_straight = True
-        
-        if has_potential_straight:
-            # More targeted straight generation
-            for combo in combinations(hand, 5):
-                combo_list = list(combo)
-                combo_ranks = sorted([self._rank(c) for c in combo_list])
-                
-                # Quick straight check before expensive hand type identification
-                if self._is_straight(combo_ranks):
-                    hand_type, _ = self._identify_hand_type(combo_list)
-                    if hand_type != "invalid" and self._beats(combo_list):
-                        moves.append(combo_list)
+        # 4. STRAIGHTS: Smart straight detection
+        if self._has_straight_potential(unique_ranks):
+            self._generate_straight_combinations(hand, moves)
         
         return moves
+    
+    def _generate_flush_combinations(self, suit_cards, moves):
+        """Generate valid flush combinations from cards of same suit."""
+        for combo in combinations(suit_cards, 5):
+            combo_list = list(combo)
+            if self._beats(combo_list):
+                moves.append(combo_list)
+    
+    def _has_straight_potential(self, unique_ranks):
+        """Quick check if hand has potential for straights."""
+        if len(unique_ranks) < 5:
+            return False
+        
+        # Convert to sorted array for efficient checking
+        ranks = np.sort(unique_ranks)
+        
+        # Check for 5+ consecutive ranks
+        for i in range(len(ranks) - 4):
+            if ranks[i + 4] - ranks[i] == 4:
+                return True
+        
+        # Check for A-2-3-4-5 straight (ranks 0,1,2,11,12)
+        ace_low_straight = np.array([0, 1, 2, 11, 12])
+        if np.all(np.isin(ace_low_straight, ranks)):
+            return True
+        
+        return False
+    
+    def _generate_straight_combinations(self, hand, moves):
+        """Generate straight combinations efficiently."""
+        # Pre-filter: only generate combinations that could form straights
+        hand_arr = np.array(hand)
+        ranks_arr = hand_arr // 4
+        
+        # Group cards by rank for efficient straight building
+        rank_groups = {}
+        for i, rank in enumerate(ranks_arr):
+            if rank not in rank_groups:
+                rank_groups[rank] = []
+            rank_groups[rank].append(hand[i])
+        
+        # Generate straights more efficiently by building them rank by rank
+        sorted_ranks = sorted(rank_groups.keys())
+        
+        # Check regular straights
+        for start_idx in range(len(sorted_ranks) - 4):
+            if sorted_ranks[start_idx + 4] - sorted_ranks[start_idx] == 4:
+                straight_ranks = sorted_ranks[start_idx:start_idx + 5]
+                self._build_straights_from_ranks(straight_ranks, rank_groups, moves)
+        
+        # Check A-2-3-4-5 straight
+        ace_low_ranks = [0, 1, 2, 11, 12]
+        if all(rank in rank_groups for rank in ace_low_ranks):
+            self._build_straights_from_ranks(ace_low_ranks, rank_groups, moves)
+    
+    def _build_straights_from_ranks(self, straight_ranks, rank_groups, moves):
+        """Build all possible straights from given ranks."""
+        # Get one card from each rank to form straights
+        rank_choices = [rank_groups[rank] for rank in straight_ranks]
+        
+        # Generate all combinations of one card per rank
+        for combo in self._cartesian_product(rank_choices):
+            combo_list = list(combo)
+            if self._beats(combo_list):
+                moves.append(combo_list)
+    
+    def _cartesian_product(self, lists):
+        """Efficient cartesian product for straight generation."""
+        if not lists:
+            yield []
+            return
+        
+        for item in lists[0]:
+            for rest in self._cartesian_product(lists[1:]):
+                yield [item] + rest
     
     def _find_pairs_vectorized(self, hand):
         """Find all pairs using numpy operations for speed."""

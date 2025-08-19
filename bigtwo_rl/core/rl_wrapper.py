@@ -16,7 +16,8 @@ class BigTwoRLWrapper(gym.Env):
         # Cache for legal moves to avoid duplicate computation
         self._cached_legal_moves = None
         self._cache_player = None
-        self._cache_game_state = None
+        self._cache_state_hash = None
+        self._cache_turn_counter = 0
         
         # Fixed observation space: hand_binary(52) + last_play_binary(52) + hand_sizes(4) + last_play_exists(1)
         self.observation_space = spaces.Box(
@@ -43,7 +44,8 @@ class BigTwoRLWrapper(gym.Env):
         # Clear cache on reset
         self._cached_legal_moves = None
         self._cache_player = None
-        self._cache_game_state = None
+        self._cache_state_hash = None
+        self._cache_turn_counter = 0
         
         raw_obs = self.env.reset(seed=seed)
         self.current_obs = self._vectorize_obs(raw_obs)
@@ -63,6 +65,9 @@ class BigTwoRLWrapper(gym.Env):
             move_idx = action
             
         raw_obs, rewards, game_done, info = self.env.step(move_idx)
+        
+        # Increment turn counter for cache invalidation
+        self._cache_turn_counter += 1
         
         # Get reward for current player (before rotation)
         player_reward = rewards[self.env.current_player - 1]  # Player rotated after step
@@ -85,7 +90,8 @@ class BigTwoRLWrapper(gym.Env):
                 # Clear cache for new game
                 self._cached_legal_moves = None
                 self._cache_player = None
-                self._cache_game_state = None
+                self._cache_state_hash = None
+                self._cache_turn_counter = 0
                 
                 raw_obs = self.env.reset()
                 self.current_obs = self._vectorize_obs(raw_obs)
@@ -102,8 +108,8 @@ class BigTwoRLWrapper(gym.Env):
         # Last play binary (52 features)
         last_play_binary = raw_obs["last_play"].astype(np.float32)
         
-        # Hand sizes for all players (4 features, padded with 0s if fewer players)
-        raw_hand_sizes = [len(h) for h in self.env.hands]
+        # Hand sizes for all players (4 features, padded with 0s if fewer players) - vectorized
+        raw_hand_sizes = np.array([len(h) for h in self.env.hands], dtype=np.float32)
         hand_sizes = np.zeros(4, dtype=np.float32)
         hand_sizes[:len(raw_hand_sizes)] = raw_hand_sizes
         
@@ -112,27 +118,27 @@ class BigTwoRLWrapper(gym.Env):
         
         return np.concatenate([hand_binary, last_play_binary, hand_sizes, last_play_exists])
     
-    def _get_game_state_hash(self):
-        """Create a simple hash of game state for cache invalidation."""
-        # Use tuple of (current_player, hands_tuple, last_play) as state identifier
-        hands_tuple = tuple(tuple(h) for h in self.env.hands)
-        last_play_tuple = tuple(self.env.last_play[0]) if self.env.last_play else None
-        return (self.env.current_player, hands_tuple, last_play_tuple)
+    def _get_simple_state_hash(self):
+        """Create a lightweight hash of game state for cache invalidation."""
+        # Use turn counter and hand sizes instead of expensive tuple creation
+        hand_sizes = tuple(len(h) for h in self.env.hands)
+        last_play_len = len(self.env.last_play[0]) if self.env.last_play else 0
+        return (self.env.current_player, hand_sizes, last_play_len, self._cache_turn_counter)
     
     def _get_legal_moves_cached(self, player):
-        """Get legal moves with caching to avoid duplicate computation."""
-        current_state = self._get_game_state_hash()
+        """Get legal moves with optimized caching to avoid duplicate computation."""
+        current_state = self._get_simple_state_hash()
         
         # Check if cache is valid
         if (self._cache_player == player and 
-            self._cache_game_state == current_state and 
+            self._cache_state_hash == current_state and 
             self._cached_legal_moves is not None):
             return self._cached_legal_moves
         
         # Cache miss - compute and store
         self._cached_legal_moves = self.env.legal_moves(player)
         self._cache_player = player
-        self._cache_game_state = current_state
+        self._cache_state_hash = current_state
         
         return self._cached_legal_moves
     

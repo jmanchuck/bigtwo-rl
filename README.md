@@ -7,7 +7,7 @@ A comprehensive reinforcement learning library for training AI agents to play Bi
 - **Library Architecture**: Proper Python package with clear module organization
 - **Extensible Training**: Configurable hyperparameters and custom reward functions 
 - **Agent System**: Modular agent implementations (Random, Greedy, PPO)
-- **Tournament Framework**: Agent vs agent competitions with statistics
+- **Tournament Framework**: 4-player series and tournaments with statistics
 - **Easy Integration**: Simple API for common workflows
 - **Complete Big Two Implementation**: Full game rules with all hand types
 
@@ -43,28 +43,34 @@ model, model_dir = trainer.train(total_timesteps=25000)
 print(f"Model saved to: {model_dir}")
 ```
 
-### Evaluating a Trained Agent
+### Evaluating a Trained Agent (4-player series)
 ```python
 from bigtwo_rl.evaluation import Evaluator
 
 evaluator = Evaluator(num_games=100)
 results = evaluator.evaluate_model("./models/my_model/best_model")
-print(results["tournament_summary"])
+# results is a series summary dict with keys:
+#  - players, wins, win_rates, avg_cards_left, draws, games_played, cards_left_by_game
+print("Players:", results["players"]) 
+print("Wins:", results["wins"]) 
+print("Win rates:", results["win_rates"]) 
+print("Avg cards left:", results["avg_cards_left"]) 
 ```
 
-### Running a Tournament
+### Running a Tournament (4-player tables)
 ```python
 from bigtwo_rl.agents import RandomAgent, GreedyAgent, PPOAgent
 from bigtwo_rl.evaluation import Tournament
 
 agents = [
     RandomAgent("Random"),
-    GreedyAgent("Greedy"), 
-    PPOAgent("./models/my_model/best_model", "MyAgent")
+    RandomAgent("Random-2"),
+    GreedyAgent("Greedy"),
+    PPOAgent("./models/my_model/best_model", "MyAgent"),
 ]
 
 tournament = Tournament(agents)
-results = tournament.run_round_robin(num_games=100)
+results = tournament.run_round_robin(num_games=100)  # plays all 4-agent combinations
 print(results["tournament_summary"])
 ```
 
@@ -87,8 +93,8 @@ bigtwo_rl/                           # Main library package
 │   ├── hyperparams.py              # Hyperparameter configurations
 │   └── rewards.py                  # Reward functions
 ├── evaluation/                      # Evaluation and competition
-│   ├── evaluator.py                # Model assessment
-│   └── tournament.py               # Agent competitions
+│   ├── evaluator.py                # Model assessment (4-player series)
+│   └── tournament.py               # 4-player series and tournaments
 └── utils/                           # Utilities and helpers
 ```
 
@@ -164,8 +170,8 @@ model, model_dir = trainer.train(
 ```bash
 # Training examples
 uv run python examples/train_agent.py               # Train agent with simple API
-uv run python examples/evaluate_agent.py MODEL     # Evaluate trained model
-uv run python examples/tournament_example.py       # Run tournament
+uv run python examples/evaluate_agent.py MODEL     # Evaluate trained model (4-player series)
+uv run python examples/tournament_example.py       # Run 4-player tournament
 uv run python examples/custom_reward_example.py    # Custom reward training
 
 # Testing
@@ -220,19 +226,19 @@ High-level training interface with configurable parameters.
 
 #### `Evaluator` 
 ```python
-Evaluator(num_games=50, verbose=True)
+Evaluator(num_games=50)
 ```
-Evaluate trained models against baseline agents.
+Evaluate trained models in 4-player series against three baseline opponents.
 
 #### `Tournament`
 ```python
 Tournament(agents, verbose=True)
 ```
-Run competitions between multiple agents.
+Run 4-player competitions between multiple agents (round-robin across 4-agent tables).
 
 #### `BigTwoRLWrapper`
 ```python
-BigTwoRLWrapper(num_players=4, episode_games=5)
+BigTwoRLWrapper(num_players=4, games_per_episode=5)
 ```
 Gymnasium-compatible environment for RL training.
 

@@ -10,7 +10,7 @@ Big Two RL Agent Library - A comprehensive reinforcement learning library for tr
 - **Library Architecture**: Proper Python package with clear module organization
 - **Extensible Training**: Configurable hyperparameters and custom reward functions 
 - **Agent System**: Modular agent implementations (Random, Greedy, PPO)
-- **Tournament Framework**: Agent vs agent competitions with statistics
+- **Tournament Framework**: 4-player series and tournaments with statistics
 - **Easy Integration**: Simple API for common workflows
 
 ## Development Commands
@@ -21,8 +21,8 @@ uv sync                                    # Install dependencies from requireme
 
 # Library Usage (Primary Methods)
 uv run python examples/train_agent.py               # Train agent with simple API
-uv run python examples/evaluate_agent.py MODEL     # Evaluate trained model
-uv run python examples/tournament_example.py       # Run tournament between agents
+uv run python examples/evaluate_agent.py MODEL     # Evaluate trained model (4-player series)
+uv run python examples/tournament_example.py       # Run 4-player tournament between agents
 uv run python examples/custom_reward_example.py    # Train with custom reward function
 
 # Testing and validation
@@ -59,8 +59,8 @@ bigtwo_rl/                           # Main library package
 │   ├── hyperparams.py              # Hyperparameter configurations
 │   └── rewards.py                  # Reward functions + BaseReward class
 ├── evaluation/                      # Evaluation and competition
-│   ├── evaluator.py                # Evaluator class for model assessment
-│   └── tournament.py               # Tournament system for agent competitions
+│   ├── evaluator.py                # Evaluator class: 4-player series assessment
+│   └── tournament.py               # 4-player tournament system for agent competitions
 └── utils/                           # Utilities and helpers
 
 examples/                            # Clear usage examples
@@ -90,9 +90,9 @@ logs/                                # Tensorboard training logs
 - `PPOAgent`: Wrapper for trained PPO models
 
 **Evaluation System (`bigtwo_rl.evaluation`)**:
-- `Evaluator`: High-level model evaluation against baselines
-- `Tournament`: Agent vs agent competitions with statistics
-- Round-robin tournaments and head-to-head matchups
+- `Evaluator`: High-level model evaluation via 4-player series (agent + 3 opponents)
+- `Tournament`: 4-player tournaments (round-robin over 4-agent tables)
+- Head-to-head matchups are not supported (Big Two is strictly 4-player in this project)
 
 **Game Environment (`bigtwo_rl.core`)**:
 - `ToyBigTwoFullRules`: Complete Big Two game implementation (279 lines)
@@ -125,13 +125,14 @@ trainer = Trainer(reward_function=MyReward(), hyperparams="aggressive")
 model, model_dir = trainer.train(total_timesteps=15000)
 ```
 
-### Tournament Between Agents
+### Tournament Between Agents (4-player tables)
 ```python
 from bigtwo_rl.agents import RandomAgent, GreedyAgent, PPOAgent
 from bigtwo_rl.evaluation import Tournament
 
 agents = [
-    RandomAgent("Random"),
+    RandomAgent("Random-1"),
+    RandomAgent("Random-2"),
     GreedyAgent("Greedy"),
     PPOAgent("./models/my_model/best_model", "MyAgent")
 ]
@@ -141,13 +142,13 @@ results = tournament.run_round_robin(num_games=100)
 print(results["tournament_summary"])
 ```
 
-### Model Evaluation
+### Model Evaluation (4-player series)
 ```python
 from bigtwo_rl.evaluation import Evaluator
 
 evaluator = Evaluator(num_games=100)
 results = evaluator.evaluate_model("./models/my_model/best_model")
-print(results["tournament_summary"])
+print(results)
 ```
 
 ## Key RL Concepts

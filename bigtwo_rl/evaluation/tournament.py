@@ -3,6 +3,7 @@
 
 import numpy as np
 from typing import List, Dict
+import itertools
 from ..core.rl_wrapper import BigTwoRLWrapper
 from ..agents import BaseAgent, RandomAgent, GreedyAgent, PPOAgent
 
@@ -33,20 +34,10 @@ class Tournament:
 
     def head_to_head(self, agent1_idx: int = 0, agent2_idx: int = 1, num_games: int = 100) -> Dict:
         """
-        Run head-to-head match between two agents.
-
-        Args:
-            agent1_idx: Index of first agent
-            agent2_idx: Index of second agent
-            num_games: Number of games to play
-
-        Returns:
-            Dict with head-to-head results
+        Head-to-head is not supported. Big Two is a 4-player game.
+        Use run_round_robin with at least 4 agents instead.
         """
-        if agent1_idx >= len(self.agents) or agent2_idx >= len(self.agents):
-            raise ValueError("Agent index out of range")
-
-        return play_head_to_head(self.agents[agent1_idx], self.agents[agent2_idx], num_games)
+        raise NotImplementedError("Head-to-head is not supported; use run_round_robin with at least 4 agents.")
 
     def add_agent(self, agent: BaseAgent):
         """Add an agent to the tournament."""
@@ -62,7 +53,14 @@ class Tournament:
 
 
 def play_single_game(agents: List[BaseAgent], env: BigTwoRLWrapper):
-    """Play a single game between multiple agents."""
+    """Play a single game between multiple agents.
+
+    Returns:
+        (winner_idx, reward, cards_remaining):
+            winner_idx: index of winner in agents list, or -1 if none
+            reward: terminal reward returned by env for current player
+            cards_remaining: list of number of cards remaining per player at game end
+    """
     obs, _ = env.reset()
     done = False
 
@@ -107,65 +105,84 @@ def play_single_game(agents: List[BaseAgent], env: BigTwoRLWrapper):
                     won = i == winner_idx
                     agent.record_game_result(won)
 
-            return winner_idx, reward
+            # Capture cards remaining for each player
+            cards_remaining = [len(env.env.hands[p]) for p in range(env.env.num_players)]
+            return winner_idx, reward, cards_remaining
 
-    return -1, 0  # No winner
+    # No winner (should not happen); capture current hand sizes
+    cards_remaining = [len(env.env.hands[p]) for p in range(env.env.num_players)]
+    return -1, 0, cards_remaining
 
 
-def play_head_to_head(agent1: BaseAgent, agent2: BaseAgent, num_games: int = 100) -> Dict:
-    """Play head-to-head matches between two agents."""
-    env = BigTwoRLWrapper(num_players=2, games_per_episode=1)
+def play_four_player_series(agents: List[BaseAgent], num_games: int = 100) -> Dict:
+    """Play a series of 4-player matches between the provided four agents.
 
-    # Reset stats
-    agent1.reset_stats()
-    agent2.reset_stats()
+    Args:
+        agents: Exactly four agents who will play together
+        num_games: Number of games to play
 
-    results = {"agent1_wins": 0, "agent2_wins": 0, "draws": 0}
+    Returns:
+        Dict with per-agent wins and win rates for the series
+    """
+    if len(agents) != 4:
+        raise ValueError("play_four_player_series requires exactly 4 agents")
 
-    for game in range(num_games):
-        agents = [agent1, agent2]
-        winner_idx, _ = play_single_game(agents, env)
+    env = BigTwoRLWrapper(num_players=4, games_per_episode=1)
 
-        if winner_idx == 0:
-            results["agent1_wins"] += 1
-        elif winner_idx == 1:
-            results["agent2_wins"] += 1
+    # Local aggregates per agent
+    local_wins = {a.name: 0 for a in agents}
+    local_cards_left_sum = {a.name: 0 for a in agents}
+    draws = 0
+    cards_left_history: List[List[int]] = []
+
+    for _ in range(num_games):
+        winner_idx, _, cards_remaining = play_single_game(agents, env)
+        if winner_idx == -1:
+            draws += 1
         else:
-            results["draws"] += 1
+            local_wins[agents[winner_idx].name] += 1
 
+        # Accumulate cards remaining per player
+        for i, a in enumerate(agents):
+            local_cards_left_sum[a.name] += cards_remaining[i]
+        cards_left_history.append(cards_remaining)
+
+    total_games = num_games
     return {
-        "agent1": agent1.name,
-        "agent2": agent2.name,
-        "agent1_wins": results["agent1_wins"],
-        "agent2_wins": results["agent2_wins"],
-        "agent1_win_rate": results["agent1_wins"] / num_games,
-        "agent2_win_rate": results["agent2_wins"] / num_games,
-        "games_played": num_games,
+        "players": [a.name for a in agents],
+        "wins": local_wins,
+        "win_rates": {name: wins / total_games for name, wins in local_wins.items()},
+        "avg_cards_left": {name: local_cards_left_sum[name] / total_games for name in local_cards_left_sum},
+        "draws": draws,
+        "cards_left_by_game": cards_left_history,
+        "games_played": total_games,
     }
 
 
 def run_round_robin_tournament(agents: List[BaseAgent], num_games: int = 100) -> Dict:
-    """Run round-robin tournament where each agent plays against every other agent."""
+    """Run a round-robin tournament over all 4-player combinations of the agents."""
+    if len(agents) < 4:
+        raise ValueError("Tournament requires at least 4 agents")
+
     matchup_results = []
 
     # Reset all agent stats
     for agent in agents:
         agent.reset_stats()
 
-    print(f"Running round-robin tournament with {len(agents)} agents, {num_games} games per matchup...")
+    print(f"Running 4-player round-robin tournament with {len(agents)} agents, {num_games} games per table...")
 
-    # Play all pairs
-    for i in range(len(agents)):
-        for j in range(i + 1, len(agents)):
-            agent1 = agents[i]
-            agent2 = agents[j]
+    # Play all 4-agent combinations
+    for combo in itertools.combinations(range(len(agents)), 4):
+        group_agents = [agents[i] for i in combo]
+        group_names = ", ".join(a.name for a in group_agents)
+        print(f"Playing table: {group_names}...")
 
-            print(f"Playing: {agent1.name} vs {agent2.name}...")
-            matchup_result = play_head_to_head(agent1, agent2, num_games)
-            matchup_results.append(matchup_result)
+        result = play_four_player_series(group_agents, num_games)
+        matchup_results.append(result)
 
     # Calculate overall stats
-    agent_stats = {}
+    agent_stats: Dict[str, Dict] = {}
     for agent in agents:
         agent_stats[agent.name] = {
             "total_wins": agent.wins,
@@ -181,7 +198,7 @@ def run_round_robin_tournament(agents: List[BaseAgent], num_games: int = 100) ->
 
 
 def _create_tournament_summary(agents: List[BaseAgent], matchup_results: List[Dict]) -> str:
-    """Create a readable tournament summary."""
+    """Create a readable tournament summary for 4-player tables."""
     summary = []
     summary.append("Tournament Results:")
     summary.append("=" * 50)
@@ -192,14 +209,12 @@ def _create_tournament_summary(agents: List[BaseAgent], matchup_results: List[Di
     for i, agent in enumerate(sorted_agents):
         summary.append(f"{i+1}. {agent.name}: {agent.wins}/{agent.games_played} wins ({agent.get_win_rate():.2%})")
 
-    summary.append("\nHead-to-Head Results:")
+    summary.append("\nTable Results:")
     summary.append("-" * 30)
     for result in matchup_results:
-        summary.append(
-            f"{result['agent1']} vs {result['agent2']}: "
-            f"{result['agent1_wins']}-{result['agent2_wins']} "
-            f"({result['agent1_win_rate']:.2%} vs {result['agent2_win_rate']:.2%})"
-        )
+        players = ", ".join(result["players"])  # type: ignore[index]
+        wins_str = ", ".join(f"{name}: {result['wins'][name]}" for name in result["players"])  # type: ignore[index]
+        summary.append(f"{players} | {wins_str} | draws: {result['draws']}")
 
     return "\n".join(summary)
 
@@ -239,8 +254,10 @@ if __name__ == "__main__":
         # Add PPO agent if model exists
         try:
             agents.append(PPOAgent(model_path="./models/best_model", name="PPO-Best"))
-        except:
+        except FileNotFoundError:
             print("No trained PPO model found, skipping PPO agent")
+        except Exception as e:
+            print(f"Failed to load PPO agent: {e}")
 
         # Run tournament
         results = run_round_robin_tournament(agents, num_games=50)

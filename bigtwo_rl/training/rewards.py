@@ -2,39 +2,44 @@
 
 from abc import ABC, abstractmethod
 
+
 class BaseReward(ABC):
     """Base class for custom reward functions."""
-    
+
     @abstractmethod
     def calculate(self, winner_player, player_idx, cards_left, all_cards_left=None):
         """
         Calculate reward for a player at game end.
-        
+
         Args:
             winner_player: Index of winning player
             player_idx: Index of player to calculate reward for
             cards_left: Number of cards left for this player
             all_cards_left: List of cards left for all players (for ranking-based rewards)
-            
+
         Returns:
             float: Reward value
         """
         pass
 
+
 def default_reward(winner_player, player_idx, cards_left):
     """Current reward structure from bigtwo.py."""
     if player_idx == winner_player:
-        return 5  # Winner gets massive reward
+        return 1  # Winner gets massive reward
     else:
         # Non-winners: reward based on cards remaining (nonlinear)
         if cards_left >= 10:
-            return cards_left * -3  # Hugely negative for 10+ cards
-        elif cards_left >= 5:
-            return cards_left * -1.5  # Negative for 5-9 cards
-        elif cards_left >= 2:
-            return cards_left * -1  # Small penalty for 1-4 cards
+            return -1  # Hugely negative for 10+ cards
+        elif cards_left >= 7:
+            return cards_left * -0.1  # Negative for 5-9 cards
+        elif cards_left >= 3:
+            return cards_left * -0.05
+        elif cards_left >= 1:
+            return cards_left * 0.2  #
         else:
             return 0
+
 
 def sparse_reward(winner_player, player_idx, cards_left):
     """Sparse reward - only win/loss, no card count penalty."""
@@ -42,6 +47,7 @@ def sparse_reward(winner_player, player_idx, cards_left):
         return 1  # Win
     else:
         return -1  # Loss
+
 
 def aggressive_penalty_reward(winner_player, player_idx, cards_left):
     """Higher penalties for losing with many cards."""
@@ -56,6 +62,7 @@ def aggressive_penalty_reward(winner_player, player_idx, cards_left):
         else:
             return cards_left * -1
 
+
 def progressive_reward(winner_player, player_idx, cards_left):
     """Reward for making progress (fewer cards = better reward)."""
     if player_idx == winner_player:
@@ -66,17 +73,19 @@ def progressive_reward(winner_player, player_idx, cards_left):
         progress_reward = (13 - cards_left) * 0.2
         return progress_reward - 2  # Base penalty + progress bonus
 
+
 def ranking_reward(winner_player, player_idx, cards_left, all_cards_left):
     """Reward based on final ranking among all players."""
     if player_idx == winner_player:
         return 3
-    
+
     # Rank players by cards left (fewer = better rank)
     sorted_players = sorted(enumerate(all_cards_left), key=lambda x: x[1])
     rank = next(i for i, (p, _) in enumerate(sorted_players) if p == player_idx)
-    
+
     # Rank 0 = winner (handled above), 1 = 2nd place, etc.
     return 2 - rank  # 2nd place gets 1, 3rd gets 0, last gets negative
+
 
 # Map of reward function names to functions
 REWARD_FUNCTIONS = {
@@ -87,11 +96,13 @@ REWARD_FUNCTIONS = {
     "ranking": ranking_reward,
 }
 
+
 def get_reward_function(name="default"):
     """Get reward function by name."""
     if name not in REWARD_FUNCTIONS:
         raise ValueError(f"Unknown reward function '{name}'. Available: {list(REWARD_FUNCTIONS.keys())}")
     return REWARD_FUNCTIONS[name]
+
 
 def list_reward_functions():
     """List all available reward function names."""

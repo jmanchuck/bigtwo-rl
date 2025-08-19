@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """Evaluate trained agent against baselines."""
 
-from stable_baselines3 import PPO
-from ..core.rl_wrapper import BigTwoRLWrapper
 from ..agents import RandomAgent, GreedyAgent, PPOAgent, BaseAgent
-from .tournament import Tournament
+from .tournament import play_four_player_series
 
 
 class Evaluator:
@@ -21,22 +19,24 @@ class Evaluator:
 
     def evaluate_agent(self, agent: BaseAgent, baselines: bool = True) -> dict:
         """
-        Evaluate an agent against baseline agents.
+        Evaluate an agent in 4-player series against three opponents.
 
         Args:
             agent: Agent to evaluate
-            baselines: Whether to include random/greedy baselines
+            baselines: If True, opponents are a mix of Random and Greedy. If False, caller must supply fully formed list elsewhere.
 
         Returns:
             Dict with evaluation results
         """
-        agents = [agent]
+        # Always construct a 4-player table: [agent] + 3 opponents
+        if not baselines:
+            raise ValueError("evaluate_agent requires baselines=True to auto-generate three opponents")
 
-        if baselines:
-            agents.extend([RandomAgent("Random"), GreedyAgent("Greedy")])
+        # Create a mix of random/greedy opponents (2 Random, 1 Greedy by default)
+        opponents = [RandomAgent("Random-1"), RandomAgent("Random-2"), GreedyAgent("Greedy")]
 
-        tournament = Tournament(agents)
-        return tournament.run_round_robin(self.num_games)
+        table_agents = [agent] + opponents
+        return play_four_player_series(table_agents, self.num_games)
 
     def evaluate_model(self, model_path: str, model_name: str = None) -> dict:
         """
@@ -69,79 +69,24 @@ class Evaluator:
         if model_names is None:
             model_names = [f"PPO-{path.split('/')[-1]}" for path in model_paths]
 
-        agents = []
-        for path, name in zip(model_paths, model_names):
-            agents.append(PPOAgent(path, name))
+        agents = [PPOAgent(path, name) for path, name in zip(model_paths, model_names)]
 
-        # Add baselines
-        agents.extend([RandomAgent("Random"), GreedyAgent("Greedy")])
-
-        tournament = Tournament(agents)
-        return tournament.run_round_robin(self.num_games)
+        # For compare, run every 4-player combination among models plus baselines if needed
+        # Here, we compare each model in a fixed table against three baselines for consistency
+        results = {}
+        for agent in agents:
+            opponents = [RandomAgent("Random-1"), RandomAgent("Random-2"), GreedyAgent("Greedy")]
+            table_agents = [agent] + opponents
+            results[agent.name] = play_four_player_series(table_agents, self.num_games)
+        return {"per_agent_series": results}
 
 
 def evaluate_agent(model_path, num_games=100):
-    """Evaluate agent against baselines."""
-
-    print(f"Loading model from {model_path}...")
-    model = PPO.load(model_path)
-
-    env = BigTwoRLWrapper()
-    random_agent = RandomAgent("Random")
-    greedy_agent = GreedyAgent("Greedy")
-    greedy_agent.set_env_reference(env)
-
-    results = {"vs_random": 0, "vs_greedy": 0}
-
-    # Test vs random policy
-    print("Evaluating vs random policy...")
-    wins = 0
-    for game in range(num_games):
-        obs, _ = env.reset()
-        done = False
-
-        while not done:
-            if env.env.current_player == 0:  # Agent's turn
-                action, _ = model.predict(obs, deterministic=True)
-                action = int(action)
-            else:  # Random opponent
-                action_mask = env.get_action_mask()
-                action = random_agent.get_action(obs, action_mask)
-
-            obs, reward, done, _, _ = env.step(action)
-
-            if done and reward > 0:  # Agent won
-                wins += 1
-                break
-
-    results["vs_random"] = wins / num_games
-    print(f"Win rate vs random: {results['vs_random']:.2%}")
-
-    # Test vs greedy policy
-    print("Evaluating vs greedy policy...")
-    wins = 0
-    for game in range(num_games):
-        obs, _ = env.reset()
-        done = False
-
-        while not done:
-            if env.env.current_player == 0:  # Agent's turn
-                action, _ = model.predict(obs, deterministic=True)
-                action = int(action)
-            else:  # Greedy opponent
-                action_mask = env.get_action_mask()
-                action = greedy_agent.get_action(obs, action_mask)
-
-            obs, reward, done, _, _ = env.step(action)
-
-            if done and reward > 0:  # Agent won
-                wins += 1
-                break
-
-    results["vs_greedy"] = wins / num_games
-    print(f"Win rate vs greedy: {results['vs_greedy']:.2%}")
-
-    return results
+    """Evaluate a PPO model in a 4-player series against three baselines."""
+    agent = PPOAgent(model_path, name=f"PPO-{model_path.split('/')[-1]}")
+    opponents = [RandomAgent("Random-1"), RandomAgent("Random-2"), GreedyAgent("Greedy")]
+    table_agents = [agent] + opponents
+    return play_four_player_series(table_agents, num_games)
 
 
 if __name__ == "__main__":
