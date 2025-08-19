@@ -30,9 +30,7 @@ class BaseReward(ABC):
         pass
 
     @abstractmethod
-    def episode_bonus(
-        self, games_won: int, total_games: int, avg_cards_left: float
-    ) -> float:
+    def episode_bonus(self, games_won: int, total_games: int, avg_cards_left: float) -> float:
         """
         Calculate bonus reward at episode end based on overall performance.
 
@@ -73,9 +71,7 @@ class DefaultReward(BaseReward):
             else:
                 return 0
 
-    def episode_bonus(
-        self, games_won: int, total_games: int, avg_cards_left: float
-    ) -> float:
+    def episode_bonus(self, games_won: int, total_games: int, avg_cards_left: float) -> float:
         """Small bonus for good episode performance."""
         win_rate = games_won / total_games if total_games > 0 else 0
         if win_rate > 0.6:
@@ -99,9 +95,7 @@ class SparseReward(BaseReward):
         else:
             return -0.25  # Loss (reduced from -1 for better learning)
 
-    def episode_bonus(
-        self, games_won: int, total_games: int, avg_cards_left: float
-    ) -> float:
+    def episode_bonus(self, games_won: int, total_games: int, avg_cards_left: float) -> float:
         """No episode bonus for sparse rewards."""
         return 0
 
@@ -128,9 +122,7 @@ class AggressivePenaltyReward(BaseReward):
             else:
                 return cards_left * -0.1
 
-    def episode_bonus(
-        self, games_won: int, total_games: int, avg_cards_left: float
-    ) -> float:
+    def episode_bonus(self, games_won: int, total_games: int, avg_cards_left: float) -> float:
         """Large bonus for avoiding penalties."""
         win_rate = games_won / total_games if total_games > 0 else 0
         if win_rate > 0.7:
@@ -159,9 +151,7 @@ class ProgressiveReward(BaseReward):
             progress_reward = (13 - cards_left) * 0.1
             return progress_reward - 0.5  # Base penalty + progress bonus
 
-    def episode_bonus(
-        self, games_won: int, total_games: int, avg_cards_left: float
-    ) -> float:
+    def episode_bonus(self, games_won: int, total_games: int, avg_cards_left: float) -> float:
         """Bonus for consistent progress."""
         if avg_cards_left < 4.0:  # Very good at minimizing cards
             return 1.0
@@ -185,9 +175,7 @@ class RankingReward(BaseReward):
         # Rank 0 = winner (handled above), 1 = 2nd place, etc.
         return 0.5 - rank * 0.2  # 2nd place gets 0.3, 3rd gets 0.1, last gets -0.1
 
-    def episode_bonus(
-        self, games_won: int, total_games: int, avg_cards_left: float
-    ) -> float:
+    def episode_bonus(self, games_won: int, total_games: int, avg_cards_left: float) -> float:
         """Bonus for consistent ranking performance."""
         win_rate = games_won / total_games if total_games > 0 else 0
         # Bonus based on both wins and low card count when losing
@@ -230,48 +218,8 @@ class ScoreMarginReward(BaseReward):
         # Combine base win/loss signal with margin, weighted to keep magnitude reasonable
         return float(0.5 * base + 0.5 * margin)
 
-    def episode_bonus(
-        self, games_won: int, total_games: int, avg_cards_left: float
-    ) -> float:
+    def episode_bonus(self, games_won: int, total_games: int, avg_cards_left: float) -> float:
         # Encourage consistent performance: normalized win-rate minus avg_cards_left factor
         win_rate = games_won / total_games if total_games > 0 else 0.0
         normalized_cards = 1.0 - min(avg_cards_left / 13.0, 1.0)
         return float(0.5 * win_rate + 0.5 * normalized_cards - 0.5)
-
-
-# Legacy support - reward classes are now imported directly
-# Example usage:
-# from bigtwo_rl.training.rewards import DefaultReward
-# reward = DefaultReward()
-
-
-# Legacy function-based rewards (for backward compatibility)
-def default_reward(winner_player: int, player_idx: int, cards_left: int) -> float:
-    """Legacy default reward function."""
-    return DefaultReward().game_reward(winner_player, player_idx, cards_left)
-
-
-def sparse_reward(winner_player: int, player_idx: int, cards_left: int) -> float:
-    """Legacy sparse reward function."""
-    return SparseReward().game_reward(winner_player, player_idx, cards_left)
-
-
-def aggressive_penalty_reward(
-    winner_player: int, player_idx: int, cards_left: int
-) -> float:
-    """Legacy aggressive penalty reward function."""
-    return AggressivePenaltyReward().game_reward(winner_player, player_idx, cards_left)
-
-
-def progressive_reward(winner_player: int, player_idx: int, cards_left: int) -> float:
-    """Legacy progressive reward function."""
-    return ProgressiveReward().game_reward(winner_player, player_idx, cards_left)
-
-
-def ranking_reward(
-    winner_player: int, player_idx: int, cards_left: int, all_cards_left: List[int]
-) -> float:
-    """Legacy ranking reward function."""
-    return RankingReward().game_reward(
-        winner_player, player_idx, cards_left, all_cards_left
-    )
