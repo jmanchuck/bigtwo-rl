@@ -18,7 +18,7 @@ A comprehensive reinforcement learning library for training AI agents to play Bi
 ### Development Install
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/jmanchuck/bigtwo-rl
 cd bigtwo-rl
 
 # Install dependencies
