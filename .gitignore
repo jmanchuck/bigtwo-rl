@@ -12,3 +12,6 @@
 .env.test.local
 logs/
 models/
+*.ipynb
+*.egg-info
+uv.lock

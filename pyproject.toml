@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bigtwo-rl"
+version = "0.1.0"
+description = "A reinforcement learning library for training AI agents to play Big Two"
+authors = [
+    {name = "BigTwo RL Contributors"}
+]
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Games/Entertainment :: Board Games",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+keywords = ["reinforcement-learning", "big-two", "card-game", "ppo", "ai"]
+
+dependencies = [
+    "numpy>=1.21.0",
+    "stable-baselines3>=2.0.0",
+    "gymnasium>=0.28.0", 
+    "torch>=2.0.0",
+    "tensorboard>=2.12.0",
+    "matplotlib>=3.6.0",
+    "tqdm>=4.64.0",
+    "rich>=12.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=22.0.0",
+    "flake8>=4.0.0",
+    "mypy>=0.900",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["bigtwo_rl*"]
+exclude = ["tests*", "examples*"]
+
+[tool.black]
+line-length = 100
+target-version = ['py38']
+
+[tool.mypy]
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true

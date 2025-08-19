@@ -3,8 +3,8 @@
 
 import sys
 from stable_baselines3 import PPO
-from bigtwo import ToyBigTwoFullRules
-from card_utils import *
+from bigtwo_rl.core.bigtwo import ToyBigTwoFullRules
+from bigtwo_rl.core.card_utils import *
 
 class HumanVsAgentGame:
     def __init__(self, model_path):

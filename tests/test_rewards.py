@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Test new reward structure."""
 
-from bigtwo import ToyBigTwoSinglesPairs
+from bigtwo_rl.core.bigtwo import ToyBigTwoSinglesPairs
 
 def test_reward_structure():
     """Test different end-game scenarios."""

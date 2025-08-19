@@ -1,189 +1,262 @@
-# Big Two RL Agent
+# Big Two RL Agent Library
 
-Train AI agents to play Big Two (Chinese poker) using reinforcement learning! 🃏🤖
+A comprehensive reinforcement learning library for training AI agents to play Big Two (Chinese card game) using PPO (Proximal Policy Optimization). The library provides a clean, extensible API for researchers and developers to experiment with different training approaches.
 
-## What is This?
+## Features
 
-This project trains AI agents to play Big Two through reinforcement learning - they learn optimal strategies by playing thousands of games and improving from experience, just like humans do.
+- **Library Architecture**: Proper Python package with clear module organization
+- **Extensible Training**: Configurable hyperparameters and custom reward functions 
+- **Agent System**: Modular agent implementations (Random, Greedy, PPO)
+- **Tournament Framework**: Agent vs agent competitions with statistics
+- **Easy Integration**: Simple API for common workflows
+- **Complete Big Two Implementation**: Full game rules with all hand types
 
-**Key Features:**
-- 🎛️ **Configurable Training**: Easy hyperparameter and reward function experimentation
-- ⚔️ **Agent Tournaments**: Pit different AI models against each other
-- 🎯 **Multiple Strategies**: Train agents with different reward structures and learning approaches
-- 🎮 **Play vs AI**: Interactive CLI to test your skills against trained agents
+## Installation
+
+### Development Install
+```bash
+# Clone the repository
+git clone <repository-url>
+cd bigtwo-rl
+
+# Install dependencies
+uv sync
+
+# Install library in development mode
+pip install -e .
+```
+
+### Production Install
+```bash
+pip install bigtwo-rl
+```
 
 ## Quick Start
 
-```bash
-# Setup
-uv sync                                    # Install dependencies
+### Training a PPO Agent
+```python
+from bigtwo_rl.training import Trainer
 
-# Train your first agent (fast experimental run)
-uv run train_with_config.py fast_experimental default 10000
-
-# Evaluate how well it learned
-uv run evaluate.py ./models/fast_experimental_default/best_model
-
-# Play against it!
-uv run play_vs_agent.py ./models/fast_experimental_default/best_model
+# Simple training with defaults
+trainer = Trainer()
+model, model_dir = trainer.train(total_timesteps=25000)
+print(f"Model saved to: {model_dir}")
 ```
 
-## Training Your Own Agents
+### Evaluating a Trained Agent
+```python
+from bigtwo_rl.evaluation import Evaluator
 
-### Available Configurations
-
-**Hyperparameter Sets:**
-- `default`: Balanced learning (recommended for most experiments)
-- `aggressive`: Fast learning, higher risk 
-- `conservative`: Slow, stable learning
-- `fast_experimental`: Quick testing (for development)
-
-**Reward Functions:**
-- `default`: Win +5, penalty based on remaining cards
-- `sparse`: Simple win/loss (+1/-1)
-- `aggressive_penalty`: Harsh penalties for losing badly
-- `progressive`: Rewards progress (fewer cards = better)
-- `ranking`: Based on final position among all players
-
-### Training Examples
-
-```bash
-# List all available options
-uv run train_with_config.py --list-configs
-
-# Standard training run
-uv run train_with_config.py default default 50000
-
-# Experiment with different reward structures
-uv run train_with_config.py default sparse 25000 sparse_experiment
-uv run train_with_config.py default progressive 25000 progress_experiment
-
-# Try aggressive learning
-uv run train_with_config.py aggressive aggressive_penalty 30000 aggressive_agent
+evaluator = Evaluator(num_games=100)
+results = evaluator.evaluate_model("./models/my_model/best_model")
+print(results["tournament_summary"])
 ```
 
-### Agent Tournaments
-
-Compare different training approaches:
-
-```bash
-# Simple tournament example
-uv run python tournament.py example
-
-# Custom tournament (Python script)
-python -c "
-from tournament import run_round_robin_tournament
-from agents import RandomAgent, GreedyAgent, PPOAgent
+### Running a Tournament
+```python
+from bigtwo_rl.agents import RandomAgent, GreedyAgent, PPOAgent
+from bigtwo_rl.evaluation import Tournament
 
 agents = [
-    RandomAgent('Random'),
-    GreedyAgent('Greedy'),
-    PPOAgent('./models/sparse_experiment/best_model', 'Sparse-Agent'),
-    PPOAgent('./models/progress_experiment/best_model', 'Progress-Agent')
+    RandomAgent("Random"),
+    GreedyAgent("Greedy"), 
+    PPOAgent("./models/my_model/best_model", "MyAgent")
 ]
 
-results = run_round_robin_tournament(agents, num_games=50)
-print(results['tournament_summary'])
-"
+tournament = Tournament(agents)
+results = tournament.run_round_robin(num_games=100)
+print(results["tournament_summary"])
 ```
 
-## Understanding the AI
+## Library Structure
 
-### How Reinforcement Learning Works Here
+```
+bigtwo_rl/                           # Main library package
+├── __init__.py                      # Main exports
+├── core/                            # Core game components
+│   ├── bigtwo.py                   # Complete Big Two game implementation
+│   ├── rl_wrapper.py               # Gymnasium-compatible RL wrapper
+│   └── card_utils.py               # Card utilities and display functions
+├── agents/                          # Agent implementations
+│   ├── base_agent.py               # Common agent interface
+│   ├── random_agent.py             # Random baseline
+│   ├── greedy_agent.py             # Greedy baseline  
+│   └── ppo_agent.py                # PPO model wrapper
+├── training/                        # Training infrastructure
+│   ├── trainer.py                  # Main Trainer class
+│   ├── hyperparams.py              # Hyperparameter configurations
+│   └── rewards.py                  # Reward functions
+├── evaluation/                      # Evaluation and competition
+│   ├── evaluator.py                # Model assessment
+│   └── tournament.py               # Agent competitions
+└── utils/                           # Utilities and helpers
+```
 
-**The Learning Process:**
-1. **Observation**: AI sees its hand + game state (last played cards, other players' hand sizes)
-2. **Decision**: Neural network picks an action (which cards to play or pass)
-3. **Feedback**: Game responds with new state + reward signal
-4. **Learning**: AI adjusts to favor actions that led to better outcomes
+## Usage Examples
 
-**Key Concepts:**
-- **Multi-Game Episodes**: Instead of learning from single hands (too random), each "episode" consists of multiple full games. The AI gets rewarded based on average performance, helping it learn true skill.
-- **Self-Play**: AI trains by playing against copies of itself. As it improves, opponents also improve, creating continuous challenge.
-- **Action Masking**: AI can only choose legal moves, focusing learning on strategy rather than rules.
+### Custom Reward Function
+```python
+from bigtwo_rl.training import Trainer, BaseReward
 
-### Monitoring Training
+class MyReward(BaseReward):
+    def calculate(self, winner, player, cards_left, all_cards=None):
+        if player == winner:
+            return 10
+        return -(cards_left ** 2) * 0.5
+
+trainer = Trainer(reward_function=MyReward(), hyperparams="aggressive")
+model, model_dir = trainer.train(total_timesteps=15000)
+```
+
+### Custom Agent
+```python
+from bigtwo_rl.agents import BaseAgent
+
+class MyAgent(BaseAgent):
+    def get_action(self, observation, action_mask=None):
+        # Your agent logic here
+        return action_index
+    
+    def reset(self):
+        # Reset agent state if needed
+        pass
+```
+
+### Advanced Training Configuration
+```python
+from bigtwo_rl.training import Trainer
+
+trainer = Trainer(
+    hyperparams="aggressive",      # or "conservative", "fast_experimental"
+    reward_function="progressive", # or "sparse", "aggressive_penalty", "ranking"
+    save_every=5000,
+    verbose=1
+)
+
+model, model_dir = trainer.train(
+    total_timesteps=50000,
+    description="Experimental training run"
+)
+```
+
+## Built-in Components
+
+### Reward Functions
+- **default**: Win +5, loss penalty scaled by remaining cards
+- **sparse**: Simple win (+1) vs loss (-1) 
+- **aggressive_penalty**: Higher penalties for losing with many cards
+- **progressive**: Rewards progress (fewer cards = better reward)
+- **ranking**: Rewards based on final ranking among all players
+
+### Hyperparameter Configurations
+- **default**: Balanced settings for general training
+- **aggressive**: Higher learning rates and penalties
+- **conservative**: More stable, slower learning
+- **fast_experimental**: Quick experimentation settings
+
+### Agent Types
+- **RandomAgent**: Random baseline for evaluation
+- **GreedyAgent**: Always plays lowest valid card
+- **PPOAgent**: Wrapper for trained PPO models
+
+## Development Commands
 
 ```bash
-# View training progress in real-time
-tensorboard --logdir=./logs
+# Training examples
+uv run python examples/train_agent.py               # Train agent with simple API
+uv run python examples/evaluate_agent.py MODEL     # Evaluate trained model
+uv run python examples/tournament_example.py       # Run tournament
+uv run python examples/custom_reward_example.py    # Custom reward training
 
-# Or for specific experiment
-tensorboard --logdir=./logs/your_experiment_name
+# Testing
+uv run python tests/test_wrapper.py        # Test environment wrapper
+uv run python tests/test_cards.py          # Test card utilities
+uv run python tests/test_rewards.py        # Test reward functions
+uv run python tests/test_training.py       # Test training setup
+
+# Interactive play
+uv run python examples/play_vs_agent.py MODEL      # Play against trained agent
+
+# Monitoring
+tensorboard --logdir=./logs                        # View training metrics
 ```
 
-### Game Implementation
+## Game Environment Details
 
-**Full Big Two Rules Implemented:**
-- ✅ Singles, pairs, trips, and all 5-card hands
-- ✅ Proper Big Two rankings (2 highest, A second highest)  
-- ✅ All hand types: straight, flush, full house, four-of-a-kind, straight flush
-- ✅ 2-4 player support with correct hand distributions
+### Observation Space (109 features)
+- Hand binary encoding (52 features)
+- Last play binary encoding (52 features) 
+- Hand sizes for all players (4 features)
+- Last play exists flag (1 feature)
 
-**AI Features:**
-- 109-dimensional observation space (hand + game state)
-- Dynamic action space with legal move masking
-- Multi-game episode training for stable skill assessment
+### Action Space
+Dynamic action space based on legal moves:
+- Single cards, pairs, trips
+- 5-card hands (straights, flushes, full houses, etc.)
+- Pass action (when not starting a trick)
 
-## Results & Performance
+### Big Two Rules
+- **Suits**: Diamonds < Clubs < Hearts < Spades
+- **Ranks**: 3 < 4 < 5 < 6 < 7 < 8 < 9 < 10 < J < Q < K < A < 2
+- **Goal**: First player to play all cards wins
 
-**Current Achievements:**
-- ✅ 100% win rate vs random and greedy baselines after 50k timesteps
-- ✅ Episode length reduction from 69→43 steps (learned efficiency)
-- ✅ Successful convergence with full Big Two complexity
-- ✅ Modular system enables easy comparison of different approaches
+## Training Results
 
-**Example Training Results:**
-```bash
-# Train two different approaches
-uv run train_with_config.py default default 50000 standard_agent
-uv run train_with_config.py default sparse 50000 sparse_agent
+Current implementation achieves:
+- 100% win rate vs random and greedy baselines after 50k timesteps
+- Episode length reduction from 69→43 steps (learned efficiency)
+- Successful convergence with full Big Two complexity
+- Stable training across different reward functions
 
-# Compare them in tournament
-# (sparse reward often leads to more aggressive play styles)
+## API Reference
+
+### Main Classes
+
+#### `Trainer`
+```python
+Trainer(hyperparams="default", reward_function="default", save_every=10000, verbose=1)
 ```
+High-level training interface with configurable parameters.
 
-## Testing & Validation
-
-```bash
-# Test the environment wrapper
-uv run test_wrapper.py
-
-# Test card utilities  
-uv run test_cards.py
-
-# Test reward functions
-uv run test_rewards.py
-
-# Test training setup
-uv run test_training.py
+#### `Evaluator` 
+```python
+Evaluator(num_games=50, verbose=True)
 ```
+Evaluate trained models against baseline agents.
 
-## Tips for Experimentation
+#### `Tournament`
+```python
+Tournament(agents, verbose=True)
+```
+Run competitions between multiple agents.
 
-**Quick Testing:**
-- Use `fast_experimental` config for rapid prototyping
-- Start with 10k-25k timesteps to test ideas
-- Use sparse rewards for simpler learning signals
+#### `BigTwoRLWrapper`
+```python
+BigTwoRLWrapper(num_players=4, episode_games=5)
+```
+Gymnasium-compatible environment for RL training.
 
-**Serious Training:**
-- Use `default` or `conservative` configs for production models
-- Train for 50k+ timesteps for stable performance  
-- Try different reward functions to encourage different play styles
+## Contributing
 
-**Model Comparison:**
-- Always run tournaments between your models
-- Test against baselines (random/greedy) to validate learning
-- Use evaluation scripts to get quantitative metrics
+1. Fork the repository
+2. Create a feature branch
+3. Add tests for new functionality
+4. Run the test suite: `uv run python tests/`
+5. Submit a pull request
 
-## Troubleshooting
+## License
 
-**Common Issues:**
-- **Observation shape errors**: Make sure models were trained with same environment version
-- **Slow tournaments**: Reduce number of games for quick testing  
-- **Models not improving**: Try different reward functions or hyperparameter sets
+[License information]
 
-**Getting Help:**
-- Check the logs in `./logs/` for training progress
-- Use tensorboard to visualize learning curves
-- Test individual components with the provided test scripts
+## Citation
+
+If you use this library in your research, please cite:
+
+```bibtex
+@software{bigtwo_rl,
+  title={Big Two RL Agent Library},
+  author={[Authors]},
+  year={2024},
+  url={[Repository URL]}
+}
+```

@@ -2,8 +2,8 @@
 """Test the new observation space with full previous hand information."""
 
 import numpy as np
-from bigtwo import ToyBigTwoFullRules
-from rl_wrapper import BigTwoRLWrapper
+from bigtwo_rl.core.bigtwo import ToyBigTwoFullRules
+from bigtwo_rl.core.rl_wrapper import BigTwoRLWrapper
 
 def test_observation_space():
     """Test that the new observation space includes full previous hand."""

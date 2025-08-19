@@ -1,5 +1,26 @@
 """Different reward functions for Big Two training experiments."""
 
+from abc import ABC, abstractmethod
+
+class BaseReward(ABC):
+    """Base class for custom reward functions."""
+    
+    @abstractmethod
+    def calculate(self, winner_player, player_idx, cards_left, all_cards_left=None):
+        """
+        Calculate reward for a player at game end.
+        
+        Args:
+            winner_player: Index of winning player
+            player_idx: Index of player to calculate reward for
+            cards_left: Number of cards left for this player
+            all_cards_left: List of cards left for all players (for ranking-based rewards)
+            
+        Returns:
+            float: Reward value
+        """
+        pass
+
 def default_reward(winner_player, player_idx, cards_left):
     """Current reward structure from bigtwo.py."""
     if player_idx == winner_player:

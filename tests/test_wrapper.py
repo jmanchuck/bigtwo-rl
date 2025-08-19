@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Test the RL wrapper to ensure it works correctly."""
 
-from rl_wrapper import BigTwoRLWrapper
+from bigtwo_rl.core.rl_wrapper import BigTwoRLWrapper
 import numpy as np
 
 def test_basic_functionality():

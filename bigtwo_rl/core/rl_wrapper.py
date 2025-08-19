@@ -1,7 +1,7 @@
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
-from bigtwo import ToyBigTwoFullRules
+from .bigtwo import ToyBigTwoFullRules
 
 
 class BigTwoRLWrapper(gym.Env):
@@ -102,8 +102,10 @@ class BigTwoRLWrapper(gym.Env):
         # Last play binary (52 features)
         last_play_binary = raw_obs["last_play"].astype(np.float32)
         
-        # Hand sizes for all players (4 features)
-        hand_sizes = np.array([len(h) for h in self.env.hands], dtype=np.float32)
+        # Hand sizes for all players (4 features, padded with 0s if fewer players)
+        raw_hand_sizes = [len(h) for h in self.env.hands]
+        hand_sizes = np.zeros(4, dtype=np.float32)
+        hand_sizes[:len(raw_hand_sizes)] = raw_hand_sizes
         
         # Last play exists flag (1 feature)
         last_play_exists = np.array([raw_obs["last_play_exists"]], dtype=np.float32)

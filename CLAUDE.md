@@ -4,83 +4,153 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Big Two RL Agent - A reinforcement learning experiment training an AI to play Big Two (Chinese card game) using PPO (Proximal Policy Optimization). The agent learns optimal strategies through self-play without explicit rules programming.
+Big Two RL Agent Library - A comprehensive reinforcement learning library for training AI agents to play Big Two (Chinese card game) using PPO (Proximal Policy Optimization). The library provides a clean, extensible API to experiment with different training approaches.
 
-**Key Features**: Modular agent system, configurable hyperparameters, pluggable reward functions, and agent tournament system for comparing different training approaches.
+**Key Features**: 
+- **Library Architecture**: Proper Python package with clear module organization
+- **Extensible Training**: Configurable hyperparameters and custom reward functions 
+- **Agent System**: Modular agent implementations (Random, Greedy, PPO)
+- **Tournament Framework**: Agent vs agent competitions with statistics
+- **Easy Integration**: Simple API for common workflows
 
 ## Development Commands
 
 ```bash
 # Environment setup
-uv sync                           # Install dependencies from requirements.txt
+uv sync                                    # Install dependencies from requirements.txt
+
+# Library Usage (Primary Methods)
+uv run python examples/train_agent.py               # Train agent with simple API
+uv run python examples/evaluate_agent.py MODEL     # Evaluate trained model
+uv run python examples/tournament_example.py       # Run tournament between agents
+uv run python examples/custom_reward_example.py    # Train with custom reward function
 
 # Testing and validation
-uv run test_wrapper.py            # Test environment wrapper functionality
-uv run test_cards.py              # Test card utilities and hand detection
-uv run test_rewards.py            # Test reward structure
-uv run test_training.py           # Test training setup
+uv run python tests/test_wrapper.py        # Test environment wrapper functionality
+uv run python tests/test_cards.py          # Test card utilities and hand detection
+uv run python tests/test_rewards.py        # Test reward structure
+uv run python tests/test_training.py       # Test training setup
 
-# Configurable Training (NEW - Primary Method)
-uv run train_with_config.py --list-configs          # List all available configurations
-uv run train_with_config.py aggressive sparse 25000 # Train with aggressive hyperparams + sparse rewards
-uv run train_with_config.py conservative default 50000 model_name  # Train with custom model name
-uv run train_with_config.py fast_experimental progressive 10000    # Quick experimental training
-
-# Agent Competition (NEW)
-uv run python tournament.py example                 # Run example tournament with available agents
-# Or use programmatically for custom tournaments
-
-# Evaluation and testing
-uv run evaluate.py ./models/best_model              # Benchmark against random/greedy baselines
-uv run evaluate.py ./models/model_name/final_model  # Evaluate specific trained model
-uv run play_vs_agent.py ./models/best_model         # Interactive CLI to play against trained agent
+# Interactive play
+uv run python examples/play_vs_agent.py MODEL      # Play against trained agent
 
 # Monitoring
-tensorboard --logdir=./logs                         # View training metrics
-tensorboard --logdir=./logs/model_name              # View specific model training
+tensorboard --logdir=./logs                        # View training metrics
 ```
 
 ## Architecture
 
+### Library Structure
+
+```
+bigtwo_rl/                           # Main library package
+├── __init__.py                      # Main exports: BigTwoRLWrapper, agents
+├── core/                            # Core game components
+│   ├── bigtwo.py                   # Complete Big Two game implementation
+│   ├── rl_wrapper.py               # Gymnasium-compatible RL wrapper
+│   └── card_utils.py               # Card utilities and display functions
+├── agents/                          # Agent implementations
+│   ├── base_agent.py               # Common agent interface
+│   ├── random_agent.py             # Random baseline
+│   ├── greedy_agent.py             # Greedy baseline  
+│   └── ppo_agent.py                # PPO model wrapper
+├── training/                        # Training infrastructure
+│   ├── trainer.py                  # Main Trainer class
+│   ├── hyperparams.py              # Hyperparameter configurations
+│   └── rewards.py                  # Reward functions + BaseReward class
+├── evaluation/                      # Evaluation and competition
+│   ├── evaluator.py                # Evaluator class for model assessment
+│   └── tournament.py               # Tournament system for agent competitions
+└── utils/                           # Utilities and helpers
+
+examples/                            # Clear usage examples
+├── train_agent.py                  # Simple training example
+├── evaluate_agent.py               # Model evaluation example
+├── tournament_example.py           # Tournament setup example
+├── custom_reward_example.py        # Custom reward function example
+└── play_vs_agent.py                # Interactive play vs agent
+
+tests/                               # Comprehensive test suite
+models/                              # Saved model checkpoints
+logs/                                # Tensorboard training logs
+```
+
 ### Core Components
 
-**Environment (`bigtwo.py`)**:
-- `ToyBigTwoFullRules`: Full Big Two game implementation with all card combinations
-- 279 lines implementing singles, pairs, trips, and 5-card hands (straights, flushes, etc.)
-- Big Two card rankings: 2 highest (12), A second highest (11), down to 3 lowest (0)
-- Supports 2-5 players with proper hand size distribution
+**Training System (`bigtwo_rl.training`)**:
+- `Trainer`: High-level training class with configurable rewards/hyperparams
+- `BaseReward`: Abstract class for custom reward functions
+- Built-in reward functions: default, sparse, aggressive_penalty, progressive, ranking
+- Hyperparameter configurations: default, aggressive, conservative, fast_experimental
 
-**RL Wrapper (`rl_wrapper.py`)**:
-- `BigTwoRLWrapper`: Gymnasium-compatible environment for Stable-Baselines3
-- Fixed 57-dim observation space: hand_binary(52) + last_rank(1) + hand_sizes(4)
-- Dynamic action space with action masking for illegal moves
-- Multi-game episodes (default 10 games) for stable skill assessment
-
-**Configurable Training (`train_with_config.py`)**:
-- PPO with selectable hyperparameter configurations (default, aggressive, conservative, fast_experimental)
-- Pluggable reward functions (default, sparse, aggressive_penalty, progressive, ranking)
-- SubprocVecEnv for true multiprocessing (configurable parallel environments)
-- EvalCallback for model checkpointing and progress tracking
-- Tensorboard logging with organized model-specific directories
-
-**Agent System (`agents/`)**:
+**Agent System (`bigtwo_rl.agents`)**:
 - `BaseAgent`: Common interface for all agent types
 - `RandomAgent`: Random baseline for evaluation
 - `GreedyAgent`: Greedy baseline (lowest card preference)
 - `PPOAgent`: Wrapper for trained PPO models
 
-**Tournament System (`tournament.py`)**:
-- Head-to-head agent matchups
-- Round-robin tournaments with multiple agents
-- Win rate statistics and performance comparisons
-- Support for agent vs agent competitions
+**Evaluation System (`bigtwo_rl.evaluation`)**:
+- `Evaluator`: High-level model evaluation against baselines
+- `Tournament`: Agent vs agent competitions with statistics
+- Round-robin tournaments and head-to-head matchups
 
-**Evaluation Suite**:
-- `evaluate.py`: Benchmark trained models vs baselines using new agent system
-- `play_vs_agent.py`: Interactive CLI with number-based move selection
-- `card_utils.py`: Utility functions for card representation and sorting
+**Game Environment (`bigtwo_rl.core`)**:
+- `ToyBigTwoFullRules`: Complete Big Two game implementation (279 lines)
+- `BigTwoRLWrapper`: Gymnasium-compatible RL environment 
+- 109-feature observation space with hand encoding and game state
+- Dynamic action space with proper action masking
 
-### Key RL Concepts
+## Usage Examples
+
+### Basic Training
+```python
+from bigtwo_rl.training import Trainer
+
+# Simple training with defaults
+trainer = Trainer()
+model, model_dir = trainer.train(total_timesteps=25000)
+```
+
+### Custom Reward Function
+```python
+from bigtwo_rl.training import Trainer, BaseReward
+
+class MyReward(BaseReward):
+    def calculate(self, winner, player, cards_left, all_cards=None):
+        if player == winner:
+            return 10
+        return -(cards_left ** 2) * 0.5
+
+trainer = Trainer(reward_function=MyReward(), hyperparams="aggressive")
+model, model_dir = trainer.train(total_timesteps=15000)
+```
+
+### Tournament Between Agents
+```python
+from bigtwo_rl.agents import RandomAgent, GreedyAgent, PPOAgent
+from bigtwo_rl.evaluation import Tournament
+
+agents = [
+    RandomAgent("Random"),
+    GreedyAgent("Greedy"),
+    PPOAgent("./models/my_model/best_model", "MyAgent")
+]
+
+tournament = Tournament(agents)
+results = tournament.run_round_robin(num_games=100)
+print(results["tournament_summary"])
+```
+
+### Model Evaluation
+```python
+from bigtwo_rl.evaluation import Evaluator
+
+evaluator = Evaluator(num_games=100)
+results = evaluator.evaluate_model("./models/my_model/best_model")
+print(results["tournament_summary"])
+```
+
+## Key RL Concepts
 
 **Observation Space (109 features)**:
 ```python
@@ -88,89 +158,51 @@ tensorboard --logdir=./logs/model_name              # View specific model traini
 ```
 
 **Action Space**: Dynamic based on legal moves
-- Singles: Play any card from hand
-- Pairs: Play any valid pair
-- Trips: Play any valid three-of-a-kind  
-- 5-card hands: Straights, flushes, full house, four-of-a-kind, straight flush
-- Pass: Available when not starting a trick
+- Singles, pairs, trips, 5-card hands (straights, flushes, etc.)
+- Pass action available when not starting a trick
 
-**Multi-Game Episodes**: Each training episode consists of multiple games (configurable) with reward only at episode end. This addresses card dealing randomness and focuses learning on true skill.
+**Multi-Game Episodes**: Each training episode consists of multiple games (configurable) with reward only at episode end to address card dealing randomness.
 
-**Configurable Reward Functions**:
-- `default`: Win +5, loss penalty scaled by remaining cards (original)
+**Reward Functions**:
+- `default`: Win +5, loss penalty scaled by remaining cards
 - `sparse`: Simple win (+1) vs loss (-1) 
 - `aggressive_penalty`: Higher penalties for losing with many cards
 - `progressive`: Rewards progress (fewer cards = better reward)
 - `ranking`: Rewards based on final ranking among all players
 
-Episode reward = average performance across all games in episode
+## Development Workflow
 
-## File Structure
-
-```
-bigtwo-agent/
-├── configs/                    # Configuration management
-│   ├── hyperparams.py         # 4 hyperparameter configurations
-│   └── rewards.py             # 5 reward function implementations
-├── agents/                     # Modular agent system
-│   ├── base_agent.py          # Common agent interface
-│   ├── random_agent.py        # Random baseline
-│   ├── greedy_agent.py        # Greedy baseline  
-│   └── ppo_agent.py           # PPO model wrapper
-├── bigtwo.py                  # Complete Big Two game environment (279 lines)
-├── rl_wrapper.py              # Gymnasium wrapper for RL training
-├── train_with_config.py       # Configurable PPO training (primary method)
-├── tournament.py              # Agent vs agent competition system
-├── evaluate.py                # Model evaluation vs baselines
-├── play_vs_agent.py           # Human vs agent CLI interface
-├── card_utils.py              # Card utilities and display functions
-├── test_*.py                  # Comprehensive test suite
-├── models/                    # Saved model checkpoints organized by experiment
-│   ├── best_model.zip         # Legacy best model
-│   ├── final_model.zip        # Legacy final model
-│   └── {experiment_name}/     # Organized model directories
-└── logs/                      # Tensorboard logs organized by experiment
-    └── {experiment_name}/     # Model-specific training logs
-```
-
-## Experimentation Workflow
-
-### Hyperparameter Experiments
+### Library Installation
 ```bash
-# List available configurations
-uv run train_with_config.py --list-configs
+# Development install
+pip install -e .
 
-# Train different hyperparameter sets
-uv run train_with_config.py aggressive sparse 25000
-uv run train_with_config.py conservative default 50000
-uv run train_with_config.py fast_experimental progressive 10000
+# Use in other projects
+pip install bigtwo-rl
 ```
 
-### Reward Function Experiments  
-```bash
-# Compare different reward functions with same hyperparams
-uv run train_with_config.py default sparse 25000 sparse_experiment
-uv run train_with_config.py default progressive 25000 progressive_experiment
-uv run train_with_config.py default ranking 25000 ranking_experiment
+### Adding Custom Agents
+```python
+from bigtwo_rl.agents import BaseAgent
+
+class MyAgent(BaseAgent):
+    def get_action(self, observation, action_mask=None):
+        # Your agent logic here
+        return action_index
+    
+    def reset(self):
+        # Reset agent state
+        pass
 ```
 
-### Agent Competition
-```bash
-# Run tournaments between different models
-python -c "
-from tournament import run_round_robin_tournament
-from agents import RandomAgent, GreedyAgent, PPOAgent
+### Extending Reward Functions
+```python
+from bigtwo_rl.training.rewards import BaseReward
 
-agents = [
-    RandomAgent('Random'),
-    GreedyAgent('Greedy'), 
-    PPOAgent('./models/sparse_experiment/best_model', 'Sparse-PPO'),
-    PPOAgent('./models/progressive_experiment/best_model', 'Progressive-PPO')
-]
-
-results = run_round_robin_tournament(agents, num_games=100)
-print(results['tournament_summary'])
-"
+class MyReward(BaseReward):
+    def calculate(self, winner_player, player_idx, cards_left, all_cards_left=None):
+        # Your reward logic here
+        return reward_value
 ```
 
 ## Training Results
@@ -184,8 +216,8 @@ Current implementation achieves:
 ## Development Notes
 
 - Uses `uv` for Python dependency management
-- No pyproject.toml - dependencies in requirements.txt
+- Proper Python packaging with `pyproject.toml`
 - Stable-Baselines3 for PPO implementation
 - Tensorboard for training visualization
-- Modular agent system for easy experimentation
-- Organized model/log directories by experiment name
+- Modular architecture enables easy experimentation
+- Comprehensive example scripts for common workflows

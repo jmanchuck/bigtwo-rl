@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Test card encoding/decoding."""
 
-from card_utils import *
+from bigtwo_rl.core.card_utils import *
 
 def test_card_conversion():
     """Test card string conversion."""

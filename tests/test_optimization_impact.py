@@ -3,7 +3,7 @@
 
 import time
 import numpy as np
-from rl_wrapper import BigTwoRLWrapper
+from bigtwo_rl.core.rl_wrapper import BigTwoRLWrapper
 
 def test_comprehensive_performance():
     """Test performance with all optimizations enabled."""
