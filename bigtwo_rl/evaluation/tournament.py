@@ -32,13 +32,6 @@ class Tournament:
         """
         return run_round_robin_tournament(self.agents, num_games)
 
-    def head_to_head(self, agent1_idx: int = 0, agent2_idx: int = 1, num_games: int = 100) -> Dict:
-        """
-        Head-to-head is not supported. Big Two is a 4-player game.
-        Use run_round_robin with at least 4 agents instead.
-        """
-        raise NotImplementedError("Head-to-head is not supported; use run_round_robin with at least 4 agents.")
-
     def add_agent(self, agent: BaseAgent):
         """Add an agent to the tournament."""
         self.agents.append(agent)

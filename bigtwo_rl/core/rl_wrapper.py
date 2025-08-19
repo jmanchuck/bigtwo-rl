@@ -57,8 +57,9 @@ class BigTwoRLWrapper(gym.Env):
         
         if action >= len(legal_moves):
             # Invalid action - force pass if legal, otherwise random legal move
-            if [] in legal_moves:
-                move_idx = legal_moves.index([])
+            pass_idx = self._find_pass_move_idx(legal_moves)
+            if pass_idx is not None:
+                move_idx = pass_idx
             else:
                 move_idx = 0
         else:
@@ -151,3 +152,15 @@ class BigTwoRLWrapper(gym.Env):
                 mask[i] = True
                 
         return mask
+    
+    def _find_pass_move_idx(self, legal_moves):
+        """Find index of pass move (all-False array or empty list) in legal_moves list."""
+        for i, move in enumerate(legal_moves):
+            # Check for numpy array pass move (all False)
+            if isinstance(move, np.ndarray):
+                if not np.any(move):
+                    return i
+            # Check for list pass move (empty list)
+            elif isinstance(move, list) and len(move) == 0:
+                return i
+        return None

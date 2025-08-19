@@ -83,8 +83,16 @@ class ToyBigTwoFullRules:
             player_cards = deck[i :: self.num_players]
             self.hands[i, player_cards] = True
 
+        # Find player with 3 of diamonds (card index 0) to start the game
+        three_of_diamonds = 0  # rank 0 (3) * 4 + suit 0 (diamonds) = 0
+        starting_player = 0
+        for player in range(self.num_players):
+            if self.hands[player, three_of_diamonds]:
+                starting_player = player
+                break
+
         # Game state
-        self.current_player = 0
+        self.current_player = starting_player
         self.last_play = None  # (cards_array, player)
         self.passes_in_row = 0
         self.done = False
