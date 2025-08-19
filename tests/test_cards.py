@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""Test card encoding/decoding."""
+
+from card_utils import *
+
+def test_card_conversion():
+    """Test card string conversion."""
+    print("Testing card conversion...")
+    
+    # Test some specific cards
+    test_cases = [
+        (0, "3D"),   # 3 of Diamonds
+        (3, "3S"),   # 3 of Spades  
+        (51, "2S"),  # 2 of Spades (highest card)
+        (48, "2D"),  # 2 of Diamonds
+        (40, "TC"), # 10 of Clubs
+    ]
+    
+    for card_idx, expected_str in test_cases:
+        result = card_to_string(card_idx)
+        print(f"Card {card_idx} -> {result} (expected {expected_str})")
+        assert result == expected_str, f"Expected {expected_str}, got {result}"
+        
+        # Test reverse conversion
+        back_to_idx = string_to_card(result)
+        assert back_to_idx == card_idx, f"Round trip failed: {card_idx} -> {result} -> {back_to_idx}"
+    
+    print("✓ Card conversion tests passed!")
+
+def test_hand_display():
+    """Test hand formatting."""
+    hand = [0, 4, 8, 40, 51]  # 3D, 4D, 5D, TC, 2S
+    formatted = format_hand(hand)
+    print(f"Hand {hand} -> {formatted}")
+    
+    expected = "3D 4D 5D TC 2S"
+    assert formatted == expected, f"Expected '{expected}', got '{formatted}'"
+    print("✓ Hand formatting tests passed!")
+
+def test_move_parsing():
+    """Test move input parsing."""
+    hand = [0, 4, 8, 40, 51]  # 3D, 4D, 5D, TC, 2S
+    
+    # Test valid inputs
+    test_cases = [
+        ("3D", [0]),
+        ("3D 4D", [0, 4]),
+        ("TC 2S", [40, 51]),
+        ("pass", []),
+        ("", []),
+    ]
+    
+    for input_str, expected in test_cases:
+        result = parse_move_input(input_str, hand)
+        print(f"Input '{input_str}' -> {result}")
+        assert result == expected, f"Expected {expected}, got {result}"
+    
+    print("✓ Move parsing tests passed!")
+
+if __name__ == "__main__":
+    test_card_conversion()
+    test_hand_display()
+    test_move_parsing()
