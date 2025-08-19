@@ -2,14 +2,40 @@
 
 A comprehensive reinforcement learning library for training AI agents to play Big Two (Chinese card game) using PPO (Proximal Policy Optimization). This library provides everything needed for Big Two AI research: training, evaluation, tournaments, and detailed performance analysis.
 
+## 📑 Table of Contents
+
+- [🚀 Key Features](#-key-features)
+- [Installation](#installation)
+- [🚦 Quick Start](#-quick-start)
+- [Library Structure](#library-structure)
+- [Usage Examples](#usage-examples)
+- [Built-in Components](#built-in-components)
+- [Hyperparameters Explained (Big Two Context)](#hyperparameters-explained-big-two-context)
+- [🎯 Training Guide](#-training-guide)
+- [📊 Evaluation & Analysis](#-evaluation--analysis)
+- [🏆 Tournament System](#-tournament-system)
+- [⚡ Performance & Optimization](#-performance--optimization)
+- [🧠 Configurable Observation System](#-configurable-observation-system)
+- [Game Environment Details](#game-environment-details)
+- [Performance & Training Results](#performance--training-results)
+- [API Reference](#api-reference)
+- [Development Commands](#development-commands)
+- [🛠️ Troubleshooting & Advanced Usage](#️-troubleshooting--advanced-usage)
+- [📚 API Reference](#-api-reference)
+- [🤝 Contributing](#-contributing)
+- [📄 License](#-license)
+- [📖 Citation](#-citation)
+- [🙏 Acknowledgments](#-acknowledgments)
+
 ## 🚀 Key Features
 
 - **🎯 Complete Training Pipeline**: End-to-end training from scratch to tournament-ready agents
 - **⚡ High-Performance Core**: Vectorized numpy implementation (5-20x speedup, 8,000+ steps/sec)
+- **🧠 Configurable Observations**: Train models with different information levels (minimal to strategic)
 - **🔧 Flexible Configuration**: Multiple hyperparameter presets and custom reward functions
 - **🏆 Tournament System**: Round-robin tournaments with detailed statistics and multiprocessing
 - **📊 Comprehensive Evaluation**: Win rates, performance metrics, and learning curve analysis
-- **🧠 Multiple Agent Types**: Random, Greedy, and PPO agents with consistent interfaces
+- **🤖 Multiple Agent Types**: Random, Greedy, and PPO agents with consistent interfaces
 - **💾 Memory Efficient**: Optimized data structures (50-75% memory reduction)
 - **🎮 Interactive Play**: Play against trained agents for testing and demo purposes
 
@@ -82,7 +108,7 @@ agents = [
 
 # Run tournament with multiprocessing (auto-detects CPUs)
 tournament = Tournament(agents, n_processes=None)
-results = tournament.run_round_robin(num_games=200)
+results = tournament.run(num_games=200)
 
 print("🏆 Tournament Results:")
 for agent, wins in zip(results["agents"], results["total_wins"]):
@@ -128,6 +154,47 @@ class MyReward(BaseReward):
 
 trainer = Trainer(reward_function=MyReward(), hyperparams="aggressive")
 model, model_dir = trainer.train(total_timesteps=15000)
+```
+
+### Custom Observation Configurations
+
+**NEW**: Train models with different levels of game information and pit them against each other!
+
+```python
+from bigtwo_rl.training import Trainer
+from bigtwo_rl.core import ObservationBuilder
+from bigtwo_rl.evaluation import Tournament
+from bigtwo_rl.agents import PPOAgent, RandomAgent
+
+# Train "blind" model (minimal information)
+blind_config = (ObservationBuilder()
+               .minimal()  # Only hand + hand sizes (56 features)
+               .build())
+
+trainer_blind = Trainer(observation_config=blind_config, reward_function="default")
+model_blind, dir_blind = trainer_blind.train(25000, model_name="blind_agent")
+
+# Train "memory" model (with card tracking)
+memory_config = (ObservationBuilder()
+                .standard()                 # Standard base (109 features)
+                .with_card_memory()         # Track played cards
+                .with_power_card_tracking() # Track Aces and 2s
+                .build())
+
+trainer_memory = Trainer(observation_config=memory_config, reward_function="progressive")
+model_memory, dir_memory = trainer_memory.train(25000, model_name="memory_agent")
+
+# Tournament: blind vs memory vs baselines
+agents = [
+    PPOAgent(f"{dir_blind}/best_model", "Blind-Agent", observation_config=blind_config),
+    PPOAgent(f"{dir_memory}/best_model", "Memory-Agent", observation_config=memory_config),
+    RandomAgent("Random"),
+]
+
+tournament = Tournament(agents)
+results = tournament.run(100)
+print("Does card memory provide an advantage?")
+print(results["tournament_summary"])
 ```
 
 ### Custom Agent
@@ -505,7 +572,7 @@ tournament = Tournament(
 )
 
 # Execute round-robin (every possible 4-agent combination)
-results = tournament.run_round_robin(num_games=500)
+results = tournament.run(num_games=500)
 ```
 
 ### Tournament Results Analysis
@@ -555,7 +622,7 @@ print(f"Available CPUs: {os.cpu_count()}")
 print("Tournament scales best with 200+ games")
 
 # Large tournament example (2-3x speedup with multiprocessing)
-results = tournament.run_round_robin(
+results = tournament.run(
     num_games=1000,        # Large tournaments benefit most from parallelization
     verbose=True           # Shows progress across processes
 )
@@ -577,7 +644,7 @@ def elimination_tournament(agents, games_per_round=100):
         
         # Pair agents randomly and compete
         tournament = Tournament(current_agents[:4])  # Take first 4 for demo
-        results = tournament.run_round_robin(num_games=games_per_round)
+        results = tournament.run(num_games=games_per_round)
         
         # Eliminate bottom performers (keep top 50%)
         agent_performance = list(zip(results["agents"], results["total_wins"]))
@@ -621,7 +688,7 @@ benchmark_agents.extend([
 
 # Run comprehensive benchmark
 tournament = Tournament(benchmark_agents, n_processes=None)
-benchmark_results = tournament.run_round_robin(num_games=400)
+benchmark_results = tournament.run(num_games=400)
 
 # Analyze which training approach works best
 print("🧪 Training Method Benchmark:")
@@ -727,10 +794,11 @@ print(f"Expected: 8,000+ steps/sec on modern hardware")
 
 ```bash
 # Training examples
-uv run python examples/train_agent.py               # Train agent with simple API
-uv run python examples/evaluate_agent.py MODEL     # Evaluate trained model (4-player series)
-uv run python examples/tournament_example.py       # Run 4-player tournament
-uv run python examples/custom_reward_example.py    # Custom reward training
+uv run python examples/train_agent.py                    # Train agent with simple API
+uv run python examples/evaluate_agent.py MODEL          # Evaluate trained model (4-player series)
+uv run python examples/tournament_example.py            # Run 4-player tournament
+uv run python examples/custom_reward_example.py         # Custom reward training
+uv run python examples/custom_observation_example.py    # NEW: Custom observation configurations
 
 # Testing
 uv run python tests/test_wrapper.py        # Test environment wrapper
@@ -747,9 +815,157 @@ uv run python examples/play_vs_agent.py MODEL      # Play against trained agent
 tensorboard --logdir=./logs                        # View training metrics
 ```
 
+## 🧠 Configurable Observation System
+
+### Overview
+
+The library now supports **configurable observation spaces**, allowing you to control exactly what information your models can see. This enables fascinating research questions like "How much does card memory help?" or "Can a minimal agent beat a memory-enhanced one?"
+
+### Quick Start with Observation Configs
+
+```python
+from bigtwo_rl.training import Trainer
+from bigtwo_rl.core import ObservationBuilder
+
+# String shortcuts (easy)
+trainer = Trainer(observation_config="minimal")    # 56 features
+trainer = Trainer(observation_config="standard")   # 109 features (default)
+trainer = Trainer(observation_config="memory")     # 161 features
+trainer = Trainer(observation_config="strategic")  # 325+ features
+
+# Custom builder (flexible)
+custom_config = (ObservationBuilder()
+                .standard()                    # Start with standard base
+                .with_card_memory()           # Add played card tracking
+                .with_power_card_tracking()   # Track Aces and 2s
+                .with_game_context()          # Game phase awareness
+                .build())
+
+trainer = Trainer(observation_config=custom_config)
+```
+
+### Available Observation Features
+
+#### Core Features (Always Available)
+- **`hand`** (52 features): Agent's own cards
+- **`hand_sizes`** (4 features): Card counts for all players
+
+#### Standard Features  
+- **`last_play`** (52 features): Cards played in current trick
+- **`last_play_exists`** (1 feature): Whether there's an active trick
+
+#### Memory Features
+- **`card_memory`** (52 features): All cards played so far this game
+- **`remaining_deck`** (52 features): Cards not yet played or in hands
+- **`cards_by_player`** (208 features): Which player played which cards
+
+#### Context Features
+- **`game_phase`** (3 features): Early/mid/late game indicators
+- **`turn_position`** (4 features): Current player position
+- **`trick_history`** (12 features): Who won the last 3 tricks
+
+#### Strategic Features
+- **`power_card_tracking`** (5 features): Status of Aces and 2s
+- **`opponent_modeling`** (20 features): Pass patterns and play styles
+- **`hand_type_capabilities`** (20 features): What hands each player can form
+
+### Builder Interface Examples
+
+#### Minimal Agent (Fastest Training)
+```python
+config = (ObservationBuilder()
+         .minimal()  # Just hand + hand sizes
+         .build())
+# 56 features - trains in ~1 minute for 25k timesteps
+```
+
+#### Card Counter Agent
+```python
+config = (ObservationBuilder()
+         .minimal()                     # Start minimal
+         .with_last_play()             # See current trick
+         .with_card_memory()           # Track all played cards
+         .with_power_card_tracking()   # Focus on key cards
+         .build())
+# 114 features - perfect for card counting experiments
+```
+
+#### Strategic Master Agent  
+```python
+config = (ObservationBuilder()
+         .strategic()  # Everything enabled
+         .build())
+# 325+ features - maximum information for advanced play
+```
+
+#### Custom Mix-and-Match
+```python
+config = (ObservationBuilder()
+         .standard()                    # Standard base
+         .with_card_memory()           # Add memory
+         .with_opponent_modeling()     # Add behavior tracking
+         .build())
+# Custom feature combination
+```
+
+### Mixed-Intelligence Tournaments
+
+Train models with different information levels and compete them:
+
+```python
+from bigtwo_rl.evaluation import Tournament
+
+# Train different intelligence levels
+configs = {
+    "blind": ObservationBuilder().minimal().build(),
+    "memory": ObservationBuilder().standard().with_card_memory().build(), 
+    "strategic": ObservationBuilder().strategic().build()
+}
+
+agents = []
+for name, config in configs.items():
+    trainer = Trainer(observation_config=config)
+    model, model_dir = trainer.train(25000, model_name=f"{name}_agent")
+    agents.append(PPOAgent(f"{model_dir}/best_model", f"{name.title()}-Agent", 
+                          observation_config=config))
+
+# Add baselines
+agents.extend([RandomAgent("Random"), GreedyAgent("Greedy")])
+
+# Tournament to see which information level wins
+tournament = Tournament(agents)
+results = tournament.run(200)
+print("Information Level Advantage Analysis:")
+print(results["tournament_summary"])
+```
+
+### Research Applications
+
+This system enables powerful research questions:
+
+1. **Information Value**: How much advantage does card memory provide?
+2. **Training Efficiency**: Do minimal models train faster to comparable performance?
+3. **Generalization**: Which observation levels generalize best to new opponents?
+4. **Cognitive Load**: What's the minimum information needed for strong play?
+
+### Backward Compatibility
+
+- **Existing models**: Continue working unchanged (default to "standard" config)
+- **Model metadata**: Automatically saves observation config for compatibility
+- **Mixed tournaments**: Models with different configs can compete fairly
+
+### Performance Impact
+
+| Observation Level | Features | Training Speed | Memory Usage |
+|------------------|----------|----------------|--------------|
+| Minimal          | 56       | Fastest (~1 min/25k) | Lowest |
+| Standard         | 109      | Fast (~2 min/25k) | Low |  
+| Memory           | 161      | Moderate (~3 min/25k) | Moderate |
+| Strategic        | 325+     | Slower (~5 min/25k) | Higher |
+
 ## Game Environment Details
 
-### Observation Space (109 features)
+### Default Observation Space (109 features)
 - Hand binary encoding (52 features)
 - Last play binary encoding (52 features) 
 - Hand sizes for all players (4 features)
@@ -912,7 +1128,7 @@ print(f"Run 1: {results_1['win_rates'][0]:.1%}, Run 2: {results_2['win_rates'][0
 ```python
 # Solution: Check for proper agent loading and multiprocessing issues
 tournament = Tournament(agents, n_processes=1)  # Disable multiprocessing for debugging
-results = tournament.run_round_robin(num_games=100)
+results = tournament.run(num_games=100)
 
 # Verify agent implementations
 for agent in agents:
@@ -996,7 +1212,7 @@ agents = [
 ]
 
 tournament = Tournament(agents)
-results = tournament.run_round_robin(num_games=200)
+results = tournament.run(num_games=200)
 ```
 
 #### Custom Environment Modifications
@@ -1274,8 +1490,7 @@ Tournament(
 ```
 
 **Methods:**
-- `run_round_robin(num_games)` → `dict` with tournament results
-- `run(num_games)` → Alias for `run_round_robin`
+- `run(num_games)` → `dict` with tournament results
 
 #### Agent Classes
 

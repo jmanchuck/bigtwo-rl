@@ -1,8 +1,13 @@
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
-from typing import Dict, Any, Optional, Tuple, List
+from typing import Dict, Any, Optional, Tuple, List, Union
 from .bigtwo import ToyBigTwoFullRules
+from .observation_builder import (
+    ObservationConfig,
+    ObservationVectorizer,
+    standard_observation,
+)
 
 
 class BigTwoRLWrapper(gym.Env):
@@ -15,6 +20,7 @@ class BigTwoRLWrapper(gym.Env):
         reward_function=None,
         controlled_player: int = 0,
         opponent_provider=None,
+        observation_config: Optional[Union[ObservationConfig, str]] = None,
     ):
         super().__init__()
         self.env = ToyBigTwoFullRules(num_players)
@@ -29,16 +35,41 @@ class BigTwoRLWrapper(gym.Env):
         self.opponent_provider = opponent_provider
         self._episode_opponents = None  # lazily created per reset
 
+        # Set up observation configuration
+        if observation_config is None:
+            self.obs_config = standard_observation()  # Backward compatible default
+        elif isinstance(observation_config, str):
+            # Handle string shortcuts
+            from .observation_builder import (
+                minimal_observation,
+                memory_enhanced_observation,
+                strategic_observation,
+            )
+
+            config_map = {
+                "minimal": minimal_observation(),
+                "standard": standard_observation(),
+                "memory": memory_enhanced_observation(),
+                "strategic": strategic_observation(),
+            }
+            if observation_config not in config_map:
+                raise ValueError(
+                    f"Unknown observation config: {observation_config}. "
+                    f"Available: {list(config_map.keys())}"
+                )
+            self.obs_config = config_map[observation_config]
+        else:
+            self.obs_config = observation_config
+
+        # Initialize observation vectorizer
+        self.obs_vectorizer = ObservationVectorizer(self.obs_config)
+        self.observation_space = self.obs_vectorizer.gymnasium_space
+
         # Cache for legal moves to avoid duplicate computation
         self._cached_legal_moves = None
         self._cache_player = None
         self._cache_state_hash = None
         self._cache_turn_counter = 0
-
-        # Fixed observation space: hand_binary(52) + last_play_binary(52) + hand_sizes(4) + last_play_exists(1)
-        self.observation_space = spaces.Box(
-            low=-1, high=1, shape=(109,), dtype=np.float32
-        )
 
         # Action space: Dynamic based on legal moves (max estimated around 1000 for 5-card combos)
         # We'll use a large fixed space and mask invalid actions
@@ -68,6 +99,9 @@ class BigTwoRLWrapper(gym.Env):
         self._cache_player = None
         self._cache_state_hash = None
         self._cache_turn_counter = 0
+
+        # Reset observation tracking
+        self.obs_vectorizer.reset()
 
         raw_obs = self.env.reset(seed=seed)
         # New episode opponents (if provider is configured)
@@ -155,25 +189,8 @@ class BigTwoRLWrapper(gym.Env):
         return self.current_obs, reward_to_return, False, False, info
 
     def _vectorize_obs(self, raw_obs: Dict[str, Any]) -> np.ndarray:
-        """Convert dict observation to fixed 109-dim vector."""
-        # Hand binary (52 features)
-        hand_binary = raw_obs["hand"].astype(np.float32)
-
-        # Last play binary (52 features)
-        last_play_binary = raw_obs["last_play"].astype(np.float32)
-
-        # Hand sizes for all players (4 features, padded with 0s if fewer players) - vectorized
-        hand_sizes = np.zeros(4, dtype=np.float32)
-        hand_sizes[: self.env.num_players] = np.sum(
-            self.env.hands, axis=1, dtype=np.float32
-        )
-
-        # Last play exists flag (1 feature)
-        last_play_exists = np.array([raw_obs["last_play_exists"]], dtype=np.float32)
-
-        return np.concatenate(
-            [hand_binary, last_play_binary, hand_sizes, last_play_exists]
-        )
+        """Convert dict observation to configured feature vector."""
+        return self.obs_vectorizer.vectorize(raw_obs, self.env)
 
     def _get_simple_state_hash(self) -> Tuple[int, Tuple[int, ...], int, int]:
         """Create a lightweight hash of game state for cache invalidation."""

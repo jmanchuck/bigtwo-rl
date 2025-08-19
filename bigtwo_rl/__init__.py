@@ -13,11 +13,14 @@ __version__ = "0.1.0"
 
 # Main API exports
 from .core import BigTwoRLWrapper, ToyBigTwoFullRules
+from .core.observation_builder import ObservationBuilder, ObservationConfig
 from .agents import BaseAgent, RandomAgent, GreedyAgent, PPOAgent
 
 __all__ = [
     "BigTwoRLWrapper",
     "ToyBigTwoFullRules",
+    "ObservationBuilder",
+    "ObservationConfig",
     "BaseAgent",
     "RandomAgent",
     "GreedyAgent",

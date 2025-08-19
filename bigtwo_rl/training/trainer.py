@@ -1,7 +1,7 @@
 """Training infrastructure for Big Two PPO agents."""
 
 import os
-from typing import Callable, Union, Optional
+from typing import Callable, Union, Optional, Any
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import SubprocVecEnv
@@ -14,7 +14,7 @@ from .opponent_pool import OpponentPool, EnvOpponentProvider
 
 
 class ConfigurableBigTwoWrapper(BigTwoRLWrapper):
-    """BigTwoRLWrapper with configurable reward function."""
+    """BigTwoRLWrapper with configurable reward function and observations."""
 
     def __init__(
         self,
@@ -23,14 +23,16 @@ class ConfigurableBigTwoWrapper(BigTwoRLWrapper):
         reward_function=None,
         controlled_player: int = 0,
         opponent_provider=None,
+        observation_config: Optional[Any] = None,
     ):
-        # Pass reward_function directly to parent - it now handles intermediate rewards
+        # Pass all configuration directly to parent
         super().__init__(
             num_players,
             games_per_episode,
             reward_function,
             controlled_player,
             opponent_provider,
+            observation_config,
         )
 
 
@@ -46,6 +48,7 @@ class Trainer:
         opponent_mixture: Optional[dict] = None,
         snapshot_dir: Optional[str] = None,
         snapshot_every_steps: Optional[int] = None,
+        observation_config: Optional[Any] = None,
     ):
         """
         Initialize trainer.
@@ -79,6 +82,7 @@ class Trainer:
         self.opponent_mixture = opponent_mixture
         self.snapshot_dir = snapshot_dir
         self.snapshot_every_steps = snapshot_every_steps
+        self.observation_config = observation_config
         self._opponent_provider = None
 
     def _make_env(self):
@@ -88,6 +92,7 @@ class Trainer:
             reward_function=self.reward_function,
             controlled_player=self.controlled_player,
             opponent_provider=self._opponent_provider,
+            observation_config=self.observation_config,
         )
 
     def train(
@@ -195,6 +200,21 @@ class Trainer:
 
         # Save final model
         model.save(f"{models_dir}/final_model")
+
+        # Save model metadata including observation config
+        if self.observation_config is not None:
+            from ..agents.model_metadata import ModelMetadata
+
+            # Get observation config from a test environment
+            test_env = self._make_env()
+            additional_info = {
+                "reward_function": self.reward_name,
+                "hyperparams": self.config_name,
+                "total_timesteps": total_timesteps,
+            }
+            ModelMetadata.save_metadata(
+                models_dir, test_env.obs_config, additional_info
+            )
 
         if verbose:
             print(f"Training completed! Model saved in {models_dir}")
