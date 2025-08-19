@@ -1,6 +1,7 @@
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
+from typing import Dict, Any, Optional, Tuple, List
 from .bigtwo import ToyBigTwoFullRules
 
 
@@ -50,7 +51,9 @@ class BigTwoRLWrapper(gym.Env):
         self.total_cards_when_losing = 0
         self.losses_count = 0
 
-    def reset(self, seed=None, options=None):
+    def reset(
+        self, seed: Optional[int] = None, options: Optional[Dict[str, Any]] = None
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         if seed is not None:
             np.random.seed(seed)
 
@@ -77,7 +80,7 @@ class BigTwoRLWrapper(gym.Env):
         self.current_obs = self._vectorize_obs(raw_obs)
         return self.current_obs, {}
 
-    def step(self, action):
+    def step(self, action: int) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
         info = {}
         reward_to_return = 0.0
         done = False
@@ -151,7 +154,7 @@ class BigTwoRLWrapper(gym.Env):
         self.current_obs = self._vectorize_obs(raw_obs)
         return self.current_obs, reward_to_return, False, False, info
 
-    def _vectorize_obs(self, raw_obs):
+    def _vectorize_obs(self, raw_obs: Dict[str, Any]) -> np.ndarray:
         """Convert dict observation to fixed 109-dim vector."""
         # Hand binary (52 features)
         hand_binary = raw_obs["hand"].astype(np.float32)
@@ -172,7 +175,7 @@ class BigTwoRLWrapper(gym.Env):
             [hand_binary, last_play_binary, hand_sizes, last_play_exists]
         )
 
-    def _get_simple_state_hash(self):
+    def _get_simple_state_hash(self) -> Tuple[int, Tuple[int, ...], int, int]:
         """Create a lightweight hash of game state for cache invalidation."""
         # Use turn counter and hand sizes instead of expensive tuple creation
         hand_sizes = tuple(np.sum(self.env.hands, axis=1))
@@ -184,7 +187,7 @@ class BigTwoRLWrapper(gym.Env):
             self._cache_turn_counter,
         )
 
-    def _get_legal_moves_cached(self, player):
+    def _get_legal_moves_cached(self, player: int) -> List[np.ndarray]:
         """Get legal moves with optimized caching to avoid duplicate computation."""
         current_state = self._get_simple_state_hash()
 
@@ -203,7 +206,7 @@ class BigTwoRLWrapper(gym.Env):
 
         return self._cached_legal_moves
 
-    def get_action_mask(self):
+    def get_action_mask(self) -> np.ndarray:
         """Return boolean mask for legal actions."""
         legal_moves = self._get_legal_moves_cached(self.env.current_player)
         mask = np.zeros(2000, dtype=bool)
@@ -214,7 +217,7 @@ class BigTwoRLWrapper(gym.Env):
 
         return mask
 
-    def _find_pass_move_idx(self, legal_moves):
+    def _find_pass_move_idx(self, legal_moves: List[np.ndarray]) -> Optional[int]:
         """Find index of pass move (all-False array or empty list) in legal_moves list."""
         for i, move in enumerate(legal_moves):
             # Check for numpy array pass move (all False)
@@ -226,7 +229,7 @@ class BigTwoRLWrapper(gym.Env):
                 return i
         return None
 
-    def _calculate_game_reward(self, player_idx):
+    def _calculate_game_reward(self, player_idx: int) -> float:
         """Calculate immediate reward after game completion."""
         if self.reward_function is not None:
             # Find winner and get all cards left
@@ -251,7 +254,7 @@ class BigTwoRLWrapper(gym.Env):
         else:
             return -0.1 * cards_left  # Simple penalty
 
-    def _calculate_episode_bonus(self):
+    def _calculate_episode_bonus(self) -> float:
         """Calculate episode bonus based on overall performance."""
         if self.reward_function is not None and self.games_played > 0:
             avg_cards_left = (
@@ -302,7 +305,7 @@ class BigTwoRLWrapper(gym.Env):
             self.losses_count += 1
         return float(reward)
 
-    def _advance_or_reset_game(self):
+    def _advance_or_reset_game(self) -> Tuple[bool, Optional[Dict[str, Any]]]:
         """Start the next game if episode not finished. Returns (episode_done, raw_obs)."""
         episode_done = self.games_played >= self.games_per_episode
         if episode_done:

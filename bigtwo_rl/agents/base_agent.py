@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 import numpy as np
+from typing import Optional
 
 
 class BaseAgent(ABC):
@@ -13,7 +14,9 @@ class BaseAgent(ABC):
         self.games_played = 0
 
     @abstractmethod
-    def get_action(self, observation, action_mask=None):
+    def get_action(
+        self, observation: np.ndarray, action_mask: Optional[np.ndarray] = None
+    ) -> int:
         """
         Get action from agent given observation.
 
@@ -27,7 +30,7 @@ class BaseAgent(ABC):
         pass
 
     @abstractmethod
-    def reset(self):
+    def reset(self) -> None:
         """Reset agent state for new game/episode."""
         pass
 
@@ -43,7 +46,7 @@ class BaseAgent(ABC):
             return 0.0
         return self.wins / self.games_played
 
-    def reset_stats(self):
+    def reset_stats(self) -> None:
         """Reset win/loss statistics."""
         self.wins = 0
         self.games_played = 0

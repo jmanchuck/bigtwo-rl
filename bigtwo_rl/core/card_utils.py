@@ -1,9 +1,10 @@
 """Card encoding/decoding utilities for human-readable format."""
 
 import numpy as np
+from typing import List, Union
 
 
-def card_to_string(card_idx):
+def card_to_string(card_idx: int) -> str:
     """Convert card index (0-51) to human readable format (e.g., 'AS', 'KH')."""
     rank = card_idx // 4
     suit = card_idx % 4
@@ -15,7 +16,7 @@ def card_to_string(card_idx):
     return rank_chars[rank] + suit_chars[suit]
 
 
-def string_to_card(card_str):
+def string_to_card(card_str: str) -> int:
     """Convert human readable format to card index."""
     if len(card_str) != 2:
         raise ValueError(f"Invalid card format: {card_str}")
@@ -34,23 +35,23 @@ def string_to_card(card_str):
         raise ValueError(f"Invalid card: {card_str}")
 
 
-def hand_to_strings(hand):
+def hand_to_strings(hand: List[int]) -> List[str]:
     """Convert list of card indices to readable strings."""
     return [card_to_string(card) for card in sorted(hand)]
 
 
-def strings_to_cards(card_strings):
+def strings_to_cards(card_strings: List[str]) -> List[int]:
     """Convert list of card strings to indices."""
     return [string_to_card(card_str) for card_str in card_strings]
 
 
-def format_hand(hand):
+def format_hand(hand: List[int]) -> str:
     """Format hand for display."""
     cards = hand_to_strings(hand)
     return " ".join(cards)
 
 
-def parse_move_input(input_str, hand):
+def parse_move_input(input_str: str, hand: List[int]) -> List[int]:
     """Parse user input for card play."""
     if not input_str.strip() or input_str.lower() == "pass":
         return []
@@ -71,13 +72,13 @@ def parse_move_input(input_str, hand):
 # Numpy array conversion functions
 
 
-def hand_array_to_strings(hand_array):
+def hand_array_to_strings(hand_array: np.ndarray) -> List[str]:
     """Convert numpy boolean array (shape 52) to readable strings."""
     card_indices = np.where(hand_array)[0]
     return [card_to_string(card) for card in sorted(card_indices)]
 
 
-def strings_to_hand_array(card_strings):
+def strings_to_hand_array(card_strings: List[str]) -> np.ndarray:
     """Convert list of card strings to numpy boolean array."""
     hand_array = np.zeros(52, dtype=bool)
     card_indices = strings_to_cards(card_strings)
@@ -85,13 +86,13 @@ def strings_to_hand_array(card_strings):
     return hand_array
 
 
-def format_hand_array(hand_array):
+def format_hand_array(hand_array: np.ndarray) -> str:
     """Format numpy hand array for display."""
     cards = hand_array_to_strings(hand_array)
     return " ".join(cards)
 
 
-def parse_move_input_array(input_str, hand_array):
+def parse_move_input_array(input_str: str, hand_array: np.ndarray) -> np.ndarray:
     """Parse user input for card play with numpy hand array."""
     if not input_str.strip() or input_str.lower() == "pass":
         return np.zeros(52, dtype=bool)  # Return empty move array
@@ -113,12 +114,12 @@ def parse_move_input_array(input_str, hand_array):
         raise ValueError(f"Invalid input: {e}")
 
 
-def card_indices_from_array(hand_array):
+def card_indices_from_array(hand_array: np.ndarray) -> np.ndarray:
     """Extract card indices from numpy boolean array."""
     return np.where(hand_array)[0]
 
 
-def array_from_card_indices(card_indices):
+def array_from_card_indices(card_indices: Union[List[int], np.ndarray]) -> np.ndarray:
     """Create numpy boolean array from card indices."""
     hand_array = np.zeros(52, dtype=bool)
     hand_array[card_indices] = True

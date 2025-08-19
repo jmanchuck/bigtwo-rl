@@ -2,6 +2,7 @@ import random
 import numpy as np
 from itertools import combinations
 from functools import lru_cache
+from typing import List, Dict, Any, Optional, Tuple
 
 
 class ToyBigTwoFullRules:
@@ -70,11 +71,11 @@ class ToyBigTwoFullRules:
     _RANK_MASKS = np.array(_RANK_MASKS, dtype=np.uint8)
     _SUIT_MASKS = np.array(_SUIT_MASKS, dtype=np.uint8)
 
-    def __init__(self, num_players=4):
+    def __init__(self, num_players: int = 4) -> None:
         self.num_players = num_players
         self.reset()
 
-    def reset(self, seed=None):
+    def reset(self, seed: Optional[int] = None) -> Dict[str, Any]:
         if seed:
             random.seed(seed)
         # Deal cards
@@ -234,7 +235,7 @@ class ToyBigTwoFullRules:
 
         return False
 
-    def legal_moves(self, player):
+    def legal_moves(self, player: int) -> List[np.ndarray]:
         """Generate all legal singles, pairs, trips, and 5-card hands."""
         hand_array = self.hands[player]  # boolean array
         hand_cards = np.where(hand_array)[0]  # get actual card indices
@@ -333,7 +334,9 @@ class ToyBigTwoFullRules:
         # For same type or non-5-card hands, compare by strength
         return play_strength > last_strength
 
-    def step(self, action):
+    def step(
+        self, action: int
+    ) -> Tuple[Dict[str, Any], List[float], bool, Dict[str, Any]]:
         """Action = index into legal_moves list."""
         if self.done:
             raise ValueError("Game already over")

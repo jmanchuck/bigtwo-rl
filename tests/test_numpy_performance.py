@@ -124,8 +124,8 @@ def test_memory_efficiency():
 
     # Observation construction efficiency
     obs = env.current_obs
-    print(f"✓ Observation vector size: {obs.shape} = {obs.nbytes} bytes")
-    print(f"✓ Direct numpy operations avoid intermediate allocations")
+    print(f"✓ Observation vector size: {obs.shape} = {obs.nbytes} bytes")  # ty: ignore
+    print("✓ Direct numpy operations avoid intermediate allocations")
 
 
 if __name__ == "__main__":

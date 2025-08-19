@@ -60,7 +60,7 @@ def main():
 
     try:
         # Try to load a trained model
-        ppo_agent = PPOAgent("./models/best_model", "PPO-Best")
+        ppo_agent = PPOAgent(model_path="./models/best_model", name="PPO-Best")
 
         # Create evaluator with parallel processing
         evaluator = Evaluator(num_games=300, n_processes=4)
@@ -72,7 +72,7 @@ def main():
         print(f"Evaluation completed in {eval_time:.2f} seconds")
         print(f"PPO Agent win rate: {eval_results['win_rates']['PPO-Best']:.1%}")
 
-    except (FileNotFoundError, Exception) as e:
+    except (FileNotFoundError, Exception):
         print("No trained model found. Skipping model evaluation.")
         print("Train a model first using: uv run python examples/train_agent.py")
 

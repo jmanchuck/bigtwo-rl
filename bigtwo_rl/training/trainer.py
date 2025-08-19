@@ -1,7 +1,7 @@
 """Training infrastructure for Big Two PPO agents."""
 
 import os
-from typing import Union, Optional
+from typing import Callable, Union, Optional
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import SubprocVecEnv
@@ -39,7 +39,7 @@ class Trainer:
 
     def __init__(
         self,
-        reward_function: Union[str, BaseReward, callable] = "default",
+        reward_function: Union[str, BaseReward, Callable] = "default",
         hyperparams: Union[str, dict] = "default",
         eval_freq: int = 5000,
         controlled_player: int = 0,

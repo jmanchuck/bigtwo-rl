@@ -6,9 +6,10 @@ from .greedy_agent import GreedyAgent
 from .ppo_agent import PPOAgent
 from .balanced_agent import BalancedRandomAgent, MoveTypeBalancedWrapper
 import os
+from typing import Optional
 
 
-def load_ppo_agent(model_path, name=None):
+def load_ppo_agent(model_path: str, name: Optional[str] = None) -> PPOAgent:
     """Convenience function to load a PPO agent with automatic naming.
 
     Args:

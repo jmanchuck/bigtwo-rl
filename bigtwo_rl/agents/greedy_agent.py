@@ -1,21 +1,24 @@
 """Greedy agent that plays lowest legal card."""
 
 import numpy as np
+from typing import Optional, Any
 from .base_agent import BaseAgent
 
 
 class GreedyAgent(BaseAgent):
     """Greedy baseline agent - always plays lowest legal card, otherwise passes."""
 
-    def __init__(self, name="Greedy"):
+    def __init__(self, name: str = "Greedy") -> None:
         super().__init__(name)
         self.env_ref = None  # Will be set by tournament runner
 
-    def set_env_reference(self, env):
+    def set_env_reference(self, env: Any) -> None:
         """Set reference to environment for accessing legal moves."""
         self.env_ref = env
 
-    def get_action(self, observation, action_mask=None):
+    def get_action(
+        self, observation: np.ndarray, action_mask: Optional[np.ndarray] = None
+    ) -> int:
         """Play lowest legal card (single card preferred), otherwise pass."""
         if self.env_ref is None:
             # Fallback to random if no env reference
@@ -38,6 +41,6 @@ class GreedyAgent(BaseAgent):
             return 0
         return 0  # Should not happen
 
-    def reset(self):
+    def reset(self) -> None:
         """Nothing to reset for greedy agent."""
         pass

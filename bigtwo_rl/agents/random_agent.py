@@ -2,16 +2,19 @@
 
 import random
 import numpy as np
+from typing import Optional
 from .base_agent import BaseAgent
 
 
 class RandomAgent(BaseAgent):
     """Random baseline agent - picks random legal action."""
 
-    def __init__(self, name="Random"):
+    def __init__(self, name: str = "Random") -> None:
         super().__init__(name)
 
-    def get_action(self, observation, action_mask=None):
+    def get_action(
+        self, observation: np.ndarray, action_mask: Optional[np.ndarray] = None
+    ) -> int:
         """Pick random legal action."""
         if action_mask is not None:
             legal_actions = np.where(action_mask)[0]
@@ -19,6 +22,6 @@ class RandomAgent(BaseAgent):
                 return random.choice(legal_actions)
         return 0  # Fallback
 
-    def reset(self):
+    def reset(self) -> None:
         """Nothing to reset for random agent."""
         pass

@@ -4,7 +4,7 @@ Balanced agent that uses move-type-first selection approach.
 
 import random
 import numpy as np
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Optional
 from .base_agent import BaseAgent
 
 
@@ -22,7 +22,9 @@ class BalancedRandomAgent(BaseAgent):
             "pass": 0.0,  # Will be handled separately
         }
 
-    def get_action(self, observation, action_mask=None):
+    def get_action(
+        self, observation: np.ndarray, action_mask: Optional[np.ndarray] = None
+    ) -> int:
         """Pick action by first selecting move type, then specific move."""
         if action_mask is None:
             return 0
@@ -110,7 +112,7 @@ class BalancedRandomAgent(BaseAgent):
         # Select based on weighted probability
         return np.random.choice(available_types, p=probabilities)
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset agent state."""
         pass
 
@@ -227,11 +229,13 @@ class MoveTypeBalancedWrapper:
         probabilities = [w / total_weight for w in weights]
         return np.random.choice(available_types, p=probabilities)
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset both wrapper and base agent."""
         if hasattr(self.base_agent, "reset"):
             self.base_agent.reset()
 
-    def get_action(self, observation, action_mask=None):
+    def get_action(
+        self, observation: np.ndarray, action_mask: Optional[np.ndarray] = None
+    ) -> int:
         """Fallback method for compatibility."""
         return self.base_agent.get_action(observation, action_mask)

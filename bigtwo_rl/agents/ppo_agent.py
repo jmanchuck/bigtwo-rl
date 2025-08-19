@@ -1,6 +1,7 @@
 """PPO agent wrapper for stable-baselines3 models."""
 
 import numpy as np
+from typing import Optional
 from stable_baselines3 import PPO
 from .base_agent import BaseAgent
 
@@ -8,7 +9,12 @@ from .base_agent import BaseAgent
 class PPOAgent(BaseAgent):
     """PPO agent wrapper for trained models."""
 
-    def __init__(self, model_path=None, model=None, name="PPO"):
+    def __init__(
+        self,
+        model_path: Optional[str] = None,
+        model: Optional[PPO] = None,
+        name: str = "PPO",
+    ) -> None:
         super().__init__(name)
         self.model_path = model_path  # Store for serialization
         if model_path:
@@ -25,7 +31,9 @@ class PPOAgent(BaseAgent):
         self.expected_obs_size = self.model.policy.observation_space.shape[0]
         self.needs_compatibility = self.expected_obs_size != 109
 
-    def get_action(self, observation, action_mask=None):
+    def get_action(
+        self, observation: np.ndarray, action_mask: Optional[np.ndarray] = None
+    ) -> int:
         """Get action from PPO model."""
         # Convert observation if needed for compatibility
         if self.needs_compatibility:
@@ -46,11 +54,11 @@ class PPOAgent(BaseAgent):
 
         return int(action)
 
-    def reset(self):
+    def reset(self) -> None:
         """Nothing to reset for PPO agent (stateless)."""
         pass
 
-    def _convert_observation(self, observation):
+    def _convert_observation(self, observation: np.ndarray) -> np.ndarray:
         """Convert 109-feature observation to model's expected size."""
         if self.expected_obs_size == 107:
             # Model expects 107 features - likely trained without hand_sizes (4) + last_play_exists (1)
@@ -76,6 +84,6 @@ class PPOAgent(BaseAgent):
                 padded[: len(observation)] = observation
                 return padded
 
-    def set_deterministic(self, deterministic: bool):
+    def set_deterministic(self, deterministic: bool) -> None:
         """Set whether to use deterministic policy."""
         self.deterministic = deterministic

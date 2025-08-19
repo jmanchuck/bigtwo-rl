@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Evaluate trained agent against baselines."""
 
+from typing import Dict, Any, List, Optional
 from ..agents import RandomAgent, GreedyAgent, PPOAgent, BaseAgent
 from .tournament import play_four_player_series
 
@@ -8,7 +9,7 @@ from .tournament import play_four_player_series
 class Evaluator:
     """High-level evaluator for Big Two agents."""
 
-    def __init__(self, num_games: int = 100, n_processes=None):
+    def __init__(self, num_games: int = 100, n_processes: Optional[int] = None) -> None:
         """
         Initialize evaluator.
 
@@ -19,7 +20,9 @@ class Evaluator:
         self.num_games = num_games
         self.n_processes = n_processes
 
-    def evaluate_agent(self, agent: BaseAgent, baselines: bool = True) -> dict:
+    def evaluate_agent(
+        self, agent: BaseAgent, baselines: bool = True
+    ) -> Dict[str, Any]:
         """
         Evaluate an agent in 4-player series against three opponents.
 
@@ -46,7 +49,9 @@ class Evaluator:
         table_agents = [agent] + opponents
         return play_four_player_series(table_agents, self.num_games, self.n_processes)
 
-    def evaluate_model(self, model_path: str, model_name: str = None) -> dict:
+    def evaluate_model(
+        self, model_path: str, model_name: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         Evaluate a trained PPO model against baselines.
 
@@ -60,10 +65,12 @@ class Evaluator:
         if model_name is None:
             model_name = f"PPO-{model_path.split('/')[-1]}"
 
-        agent = PPOAgent(model_path, model_name)
+        agent = PPOAgent(model_path=model_path, name=model_name)
         return self.evaluate_agent(agent)
 
-    def compare_models(self, model_paths: list, model_names: list = None) -> dict:
+    def compare_models(
+        self, model_paths: List[str], model_names: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
         """
         Compare multiple trained models against each other and baselines.
 
@@ -95,7 +102,7 @@ class Evaluator:
         return {"per_agent_series": results}
 
 
-def evaluate_agent(model_path, num_games=100):
+def evaluate_agent(model_path: str, num_games: int = 100) -> Dict[str, Any]:
     """Evaluate a PPO model in a 4-player series against three baselines."""
     agent = PPOAgent(model_path, name=f"PPO-{model_path.split('/')[-1]}")
     opponents = [

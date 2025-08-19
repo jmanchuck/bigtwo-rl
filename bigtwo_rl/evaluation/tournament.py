@@ -50,11 +50,11 @@ class Tournament:
         processes = n_processes or self.n_processes
         return run_tournament(self.agents, num_games, processes)
 
-    def add_agent(self, agent: BaseAgent):
+    def add_agent(self, agent: BaseAgent) -> None:
         """Add an agent to the tournament."""
         self.agents.append(agent)
 
-    def remove_agent(self, agent_name: str):
+    def remove_agent(self, agent_name: str) -> None:
         """Remove an agent by name."""
         self.agents = [a for a in self.agents if a.name != agent_name]
 
@@ -63,7 +63,9 @@ class Tournament:
         return [agent.name for agent in self.agents]
 
 
-def play_single_game(agents: List[BaseAgent], env: BigTwoRLWrapper):
+def play_single_game(
+    agents: List[BaseAgent], env: BigTwoRLWrapper
+) -> Tuple[int, float, List[int]]:
     """Play a single game between multiple agents.
 
     Returns:
@@ -79,7 +81,7 @@ def play_single_game(agents: List[BaseAgent], env: BigTwoRLWrapper):
     for agent in agents:
         agent.reset()
         if hasattr(agent, "set_env_reference"):
-            agent.set_env_reference(env)
+            agent.set_env_reference(env)  # ty: ignore
 
     while not done:
         current_player = env.env.current_player
