@@ -28,7 +28,19 @@ class PPOAgent(BaseAgent):
         if self.needs_compatibility:
             observation = self._convert_observation(observation)
         
+        # Get model prediction
         action, _ = self.model.predict(observation, deterministic=self.deterministic)
+        
+        # Apply action masking manually if the predicted action is invalid
+        if action_mask is not None:
+            if not action_mask[action]:
+                # Find a valid action from the mask
+                legal_actions = np.where(action_mask)[0]
+                if len(legal_actions) > 0:
+                    action = legal_actions[0]  # Take first legal action as fallback
+                else:
+                    action = 0  # Ultimate fallback
+        
         return int(action)
     
     def reset(self):
