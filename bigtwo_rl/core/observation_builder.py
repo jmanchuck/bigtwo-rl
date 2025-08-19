@@ -5,7 +5,7 @@ enabling experiments with different levels of game state visibility.
 """
 
 import numpy as np
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any
 from dataclasses import dataclass, field
 from gymnasium import spaces
 
@@ -22,27 +22,23 @@ class ObservationConfig:
     # Enhanced memory features
     include_played_cards: bool = False  # All cards played so far (52 features)
     include_remaining_deck: bool = False  # What cards are still unplayed (52 features)
-    include_cards_by_player: bool = (
-        False  # Which player played which cards (52*4=208 features)
-    )
+    include_cards_by_player: bool = False  # Which player played which cards (52*4=208 features)
 
     # Game context features
     include_last_play_exists: bool = True  # Whether there's a last play (1 feature)
     include_game_phase: bool = False  # Early/mid/late game indicator (3 features)
     include_turn_position: bool = False  # Position relative to dealer (4 features)
-    include_trick_history: bool = (
-        False  # Who won last N tricks (12 features, last 3 tricks * 4 players)
-    )
+    include_trick_history: bool = False  # Who won last N tricks (12 features, last 3 tricks * 4 players)
 
     # Opponent modeling features
     include_pass_history: bool = False  # Who passed on current trick (4 features)
     include_play_patterns: bool = False  # Opponent playing style indicators (16 features, 4 players * 4 style metrics)
 
     # Advanced strategic features
-    include_power_cards_remaining: bool = (
-        False  # Status of A♠, 2♠, 2♥, 2♦, 2♣ (5 features)
+    include_power_cards_remaining: bool = False  # Status of A♠, 2♠, 2♥, 2♦, 2♣ (5 features)
+    include_hand_type_capabilities: bool = (
+        False  # What hand types each player can still make (20 features, 4 players * 5 types)
     )
-    include_hand_type_capabilities: bool = False  # What hand types each player can still make (20 features, 4 players * 5 types)
 
     # Internal tracking (computed automatically)
     _feature_sizes: Dict[str, int] = field(default_factory=dict, init=False)
@@ -70,9 +66,7 @@ class ObservationConfig:
 
         # Validation
         if not (self.include_hand and self.include_hand_sizes):
-            raise ValueError(
-                "include_hand and include_hand_sizes are required for basic gameplay"
-            )
+            raise ValueError("include_hand and include_hand_sizes are required for basic gameplay")
 
 
 class ObservationBuilder:
@@ -161,9 +155,7 @@ class ObservationBuilder:
 
     def memory_enhanced(self) -> "ObservationBuilder":
         """Enhanced with card memory and game context."""
-        return (
-            self.standard().with_card_memory().with_remaining_deck().with_game_context()
-        )
+        return self.standard().with_card_memory().with_remaining_deck().with_game_context()
 
     def strategic(self) -> "ObservationBuilder":
         """Full strategic information including opponent modeling."""
@@ -188,18 +180,14 @@ class ObservationVectorizer:
 
     def __init__(self, config: ObservationConfig):
         self.config = config
-        self.gymnasium_space = spaces.Box(
-            low=-1, high=1, shape=(config._total_size,), dtype=np.float32
-        )
+        self.gymnasium_space = spaces.Box(low=-1, high=1, shape=(config._total_size,), dtype=np.float32)
 
         # Initialize tracking state for advanced features
         self._played_cards = np.zeros(52, dtype=bool)  # Cards played this game
         self._cards_by_player = np.zeros((4, 52), dtype=bool)  # Who played what
         self._trick_winners = []  # Last few trick winners
         self._pass_counts = np.zeros(4, dtype=int)  # Pass counts per player
-        self._play_style_metrics = np.zeros(
-            (4, 4), dtype=float
-        )  # Style indicators per player
+        self._play_style_metrics = np.zeros((4, 4), dtype=float)  # Style indicators per player
 
     def reset(self):
         """Reset tracking state for new game."""
@@ -222,9 +210,7 @@ class ObservationVectorizer:
 
         if self.config.include_hand_sizes:
             hand_sizes = np.zeros(4, dtype=np.float32)
-            hand_sizes[: game_env.num_players] = np.sum(
-                game_env.hands, axis=1, dtype=np.float32
-            )
+            hand_sizes[: game_env.num_players] = np.sum(game_env.hands, axis=1, dtype=np.float32)
             features.append(hand_sizes)
 
         # Memory features
@@ -307,9 +293,7 @@ class ObservationVectorizer:
 
         # Ensure correct size
         if len(result) != self.config._total_size:
-            raise ValueError(
-                f"Feature vector size mismatch: got {len(result)}, expected {self.config._total_size}"
-            )
+            raise ValueError(f"Feature vector size mismatch: got {len(result)}, expected {self.config._total_size}")
 
         return result
 
