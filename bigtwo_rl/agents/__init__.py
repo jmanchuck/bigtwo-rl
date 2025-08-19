@@ -7,16 +7,17 @@ from .ppo_agent import PPOAgent
 from .balanced_agent import BalancedRandomAgent, MoveTypeBalancedWrapper
 import os
 
+
 def load_ppo_agent(model_path, name=None):
     """Convenience function to load a PPO agent with automatic naming.
-    
+
     Args:
         model_path: Path to the trained model (e.g., "./models/my_model/best_model")
         name: Optional name for the agent (defaults to model directory name)
-    
+
     Returns:
         PPOAgent instance
-    
+
     Example:
         agent = load_ppo_agent("./models/my_model/best_model")
         # or with custom name:
@@ -24,8 +25,21 @@ def load_ppo_agent(model_path, name=None):
     """
     if name is None:
         # Extract name from model path - use parent directory name
-        name = os.path.basename(os.path.dirname(model_path)) if "/" in model_path else "PPO"
-    
+        name = (
+            os.path.basename(os.path.dirname(model_path))
+            if "/" in model_path
+            else "PPO"
+        )
+
     return PPOAgent(model_path=model_path, name=name)
 
-__all__ = ["BaseAgent", "RandomAgent", "GreedyAgent", "PPOAgent", "BalancedRandomAgent", "MoveTypeBalancedWrapper", "load_ppo_agent"]
+
+__all__ = [
+    "BaseAgent",
+    "RandomAgent",
+    "GreedyAgent",
+    "PPOAgent",
+    "BalancedRandomAgent",
+    "MoveTypeBalancedWrapper",
+    "load_ppo_agent",
+]

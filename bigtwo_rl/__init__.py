@@ -4,7 +4,7 @@ A reinforcement learning library for training and evaluating AI agents that play
 
 Main components:
 - bigtwo_rl.core: Game environment and RL wrapper
-- bigtwo_rl.agents: Various agent implementations  
+- bigtwo_rl.agents: Various agent implementations
 - bigtwo_rl.training: Training infrastructure with configurable rewards/hyperparams
 - bigtwo_rl.evaluation: Tournament system and evaluation tools
 """
@@ -17,7 +17,7 @@ from .agents import BaseAgent, RandomAgent, GreedyAgent, PPOAgent
 
 __all__ = [
     "BigTwoRLWrapper",
-    "ToyBigTwoFullRules", 
+    "ToyBigTwoFullRules",
     "BaseAgent",
     "RandomAgent",
     "GreedyAgent",

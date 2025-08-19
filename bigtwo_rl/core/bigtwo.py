@@ -7,7 +7,9 @@ from functools import lru_cache
 class ToyBigTwoFullRules:
     # Precomputed lookup tables for card properties (massive speedup)
     _RANK_TABLE = [card // 4 for card in range(52)]  # 0 = 3, 12 = 2
-    _SUIT_TABLE = [card % 4 for card in range(52)]  # 0 = diamonds, 1 = clubs, 2 = hearts, 3 = spades
+    _SUIT_TABLE = [
+        card % 4 for card in range(52)
+    ]  # 0 = diamonds, 1 = clubs, 2 = hearts, 3 = spades
 
     # Precomputed Big Two card values (2 is highest = 12, A = 11, etc.)
     _VALUE_TABLE = []
@@ -47,7 +49,9 @@ class ToyBigTwoFullRules:
 
     # Fill rank-to-value lookup (ranks 0-12 -> values 0-12)
     for rank in range(13):
-        _RANK_TO_VALUE.append(rank)  # Since our rank mapping already matches Big Two values
+        _RANK_TO_VALUE.append(
+            rank
+        )  # Since our rank mapping already matches Big Two values
 
     # Precompute card strengths (value*4 + suit)
     _CARD_STRENGTHS = []
@@ -262,7 +266,9 @@ class ToyBigTwoFullRules:
                 last_play_cards = np.where(self.last_play[0])[0]
                 last_type, last_strength = self._identify_hand_type(last_play_cards)
                 # Skip expensive computation if we clearly can't beat it
-                if not self._can_potentially_beat_5_card(hand_cards, last_type, last_strength):
+                if not self._can_potentially_beat_5_card(
+                    hand_cards, last_type, last_strength
+                ):
                     pass  # Skip 5-card generation entirely
                 else:
                     moves.extend(self._generate_5_card_hands_optimized(hand_cards))
@@ -307,7 +313,13 @@ class ToyBigTwoFullRules:
 
         # For 5-card hands, different types have different base strengths
         if len(play_indices) == 5:
-            type_hierarchy = {"straight": 1, "flush": 2, "full_house": 3, "four_of_a_kind": 4, "straight_flush": 5}
+            type_hierarchy = {
+                "straight": 1,
+                "flush": 2,
+                "full_house": 3,
+                "four_of_a_kind": 4,
+                "straight_flush": 5,
+            }
 
             play_base = type_hierarchy.get(play_type, 0)
             last_base = type_hierarchy.get(last_type, 0)
@@ -416,7 +428,9 @@ class ToyBigTwoFullRules:
 
         # Check for potential straights (5+ consecutive ranks)
         sorted_ranks = sorted(ranks.keys())
-        has_straight_potential = len(sorted_ranks) >= 5 and (max(sorted_ranks) - min(sorted_ranks) <= 8)
+        has_straight_potential = len(sorted_ranks) >= 5 and (
+            max(sorted_ranks) - min(sorted_ranks) <= 8
+        )
 
         # Quick decisions based on last play type
         if last_type == "straight_flush":
@@ -424,7 +438,9 @@ class ToyBigTwoFullRules:
             return has_flush_potential and has_straight_potential
         elif last_type == "four_of_a_kind":
             # Need four of a kind or straight flush
-            return any(count >= 4 for count in rank_counts) or (has_flush_potential and has_straight_potential)
+            return any(count >= 4 for count in rank_counts) or (
+                has_flush_potential and has_straight_potential
+            )
         elif last_type == "full_house":
             # Need full house or better
             return (

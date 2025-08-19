@@ -135,9 +135,14 @@ class MyAgent(BaseAgent):
 from bigtwo_rl.training import Trainer
 
 trainer = Trainer(
-    hyperparams="aggressive",      # or "conservative", "fast_experimental"
-    reward_function="progressive", # or "sparse", "aggressive_penalty", "ranking"
-    save_every=5000,
+    hyperparams="default",      # or "aggressive", "conservative", "fast_experimental"
+    reward_function="score_margin",  # also: "progressive", "ranking", ...
+    # Self-play improvements (optional):
+    controlled_player=0,  # seat controlled by PPO
+    opponent_mixture={"snapshots": 0.6, "greedy": 0.3, "random": 0.1},
+    snapshot_dir="./models/my_run",  # discover/save snapshots
+    snapshot_every_steps=10000,       # periodically save snapshots
+    eval_freq=5000,
     verbose=1
 )
 
@@ -155,6 +160,7 @@ model, model_dir = trainer.train(
 - **aggressive_penalty**: Higher penalties for losing with many cards
 - **progressive**: Rewards progress (fewer cards = better reward)
 - **ranking**: Rewards based on final ranking among all players
+ - **score_margin**: Continuous reward blending win/loss with normalized card-margin vs opponents
 
 ### Hyperparameter Configurations
 - **default**: Balanced settings for general training
@@ -289,9 +295,33 @@ Run 4-player competitions between multiple agents (round-robin across 4-agent ta
 
 #### `BigTwoRLWrapper`
 ```python
-BigTwoRLWrapper(num_players=4, games_per_episode=5)
+BigTwoRLWrapper(
+    num_players=4,
+    games_per_episode=5,
+    reward_function=None,
+    controlled_player=0,
+    opponent_provider=None,
+)
 ```
 Gymnasium-compatible environment for RL training.
+
+### Self-Play and Opponent Pool (Clean API)
+
+Configure self-play via `Trainer` arguments only. Opponents are auto-stepped inside the env until it’s the learner’s turn; PPO still sees a standard `gym.Env`.
+
+- `controlled_player` (int): seat index controlled by PPO (default 0).
+- `opponent_mixture` (dict): sampling weights for {"snapshots", "greedy", "random"}.
+- `snapshot_dir` (str): directory to discover and save snapshots.
+- `snapshot_every_steps` (int): frequency to snapshot current model.
+
+Quick smoke:
+```bash
+uv run python examples/smoke_train.py
+uv run python - <<'PY'
+from bigtwo_rl.evaluation.evaluator import evaluate_agent
+print(evaluate_agent('./models/smoke_test/final_model', num_games=100))
+PY
+```
 
 ## Contributing
 

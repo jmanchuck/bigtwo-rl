@@ -30,10 +30,16 @@ class Evaluator:
         """
         # Always construct a 4-player table: [agent] + 3 opponents
         if not baselines:
-            raise ValueError("evaluate_agent requires baselines=True to auto-generate three opponents")
+            raise ValueError(
+                "evaluate_agent requires baselines=True to auto-generate three opponents"
+            )
 
         # Create a mix of random/greedy opponents (2 Random, 1 Greedy by default)
-        opponents = [RandomAgent("Random-1"), RandomAgent("Random-2"), GreedyAgent("Greedy")]
+        opponents = [
+            RandomAgent("Random-1"),
+            RandomAgent("Random-2"),
+            GreedyAgent("Greedy"),
+        ]
 
         table_agents = [agent] + opponents
         return play_four_player_series(table_agents, self.num_games)
@@ -75,7 +81,11 @@ class Evaluator:
         # Here, we compare each model in a fixed table against three baselines for consistency
         results = {}
         for agent in agents:
-            opponents = [RandomAgent("Random-1"), RandomAgent("Random-2"), GreedyAgent("Greedy")]
+            opponents = [
+                RandomAgent("Random-1"),
+                RandomAgent("Random-2"),
+                GreedyAgent("Greedy"),
+            ]
             table_agents = [agent] + opponents
             results[agent.name] = play_four_player_series(table_agents, self.num_games)
         return {"per_agent_series": results}
@@ -84,7 +94,11 @@ class Evaluator:
 def evaluate_agent(model_path, num_games=100):
     """Evaluate a PPO model in a 4-player series against three baselines."""
     agent = PPOAgent(model_path, name=f"PPO-{model_path.split('/')[-1]}")
-    opponents = [RandomAgent("Random-1"), RandomAgent("Random-2"), GreedyAgent("Greedy")]
+    opponents = [
+        RandomAgent("Random-1"),
+        RandomAgent("Random-2"),
+        GreedyAgent("Greedy"),
+    ]
     table_agents = [agent] + opponents
     return play_four_player_series(table_agents, num_games)
 

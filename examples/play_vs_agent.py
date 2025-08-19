@@ -5,7 +5,12 @@ import sys
 import os
 from stable_baselines3 import PPO
 from bigtwo_rl.core.bigtwo import ToyBigTwoFullRules
-from bigtwo_rl.core.card_utils import hand_to_strings, format_hand, hand_array_to_strings, format_hand_array
+from bigtwo_rl.core.card_utils import (
+    hand_to_strings,
+    format_hand,
+    hand_array_to_strings,
+    format_hand_array,
+)
 import numpy as np
 
 
@@ -19,14 +24,20 @@ class HumanVsAgentGame:
         """Show current game state."""
         print("\n" + "=" * 50)
         current_player_name = (
-            "YOU" if self.env.current_player == self.human_player else f"AGENT {self.env.current_player}"
+            "YOU"
+            if self.env.current_player == self.human_player
+            else f"AGENT {self.env.current_player}"
         )
         print(f"Current player: {current_player_name}")
 
         if self.env.last_play:
             last_play_cards = np.where(self.env.last_play[0])[0]
             last_cards = hand_to_strings(last_play_cards)
-            last_player = "YOU" if self.env.last_play[1] == self.human_player else f"AGENT {self.env.last_play[1]}"
+            last_player = (
+                "YOU"
+                if self.env.last_play[1] == self.human_player
+                else f"AGENT {self.env.last_play[1]}"
+            )
             print(f"Last play: {' '.join(last_cards)} (by {last_player})")
         else:
             print("Last play: None (start new trick)")
@@ -65,7 +76,9 @@ class HumanVsAgentGame:
 
         while True:
             try:
-                user_input = input(f"\nEnter move number (0-{len(legal_moves)-1}): ").strip()
+                user_input = input(
+                    f"\nEnter move number (0-{len(legal_moves)-1}): "
+                ).strip()
 
                 try:
                     move_idx = int(user_input)
@@ -92,7 +105,9 @@ class HumanVsAgentGame:
         last_play_binary = raw_obs["last_play"].astype(np.float32)
         hand_sizes = np.array([np.sum(h) for h in self.env.hands], dtype=np.float32)
         last_play_exists = np.array([raw_obs["last_play_exists"]], dtype=np.float32)
-        obs = np.concatenate([hand_binary, last_play_binary, hand_sizes, last_play_exists])
+        obs = np.concatenate(
+            [hand_binary, last_play_binary, hand_sizes, last_play_exists]
+        )
 
         action, _ = self.model.predict(obs, deterministic=True)
 
@@ -142,7 +157,9 @@ class HumanVsAgentGame:
                     hand_type, _ = self.env._identify_hand_type(move)
                     if len(move) == 5:
                         hand_type_display = hand_type.replace("_", " ").title()
-                        print(f"Agent {current_player} played: {cards_str} ({hand_type_display})")
+                        print(
+                            f"Agent {current_player} played: {cards_str} ({hand_type_display})"
+                        )
                     else:
                         print(f"Agent {current_player} played: {cards_str}")
                 else:
@@ -178,7 +195,9 @@ class HumanVsAgentGame:
 def main():
     if len(sys.argv) < 2:
         print("Usage: python examples/play_vs_agent.py <MODEL_DIR or MODEL_FILE>")
-        print("  - If a directory is provided, the script will look for 'best_model.zip' then 'final_model.zip'.")
+        print(
+            "  - If a directory is provided, the script will look for 'best_model.zip' then 'final_model.zip'."
+        )
         sys.exit(1)
 
     user_arg = sys.argv[1]
@@ -215,7 +234,9 @@ def main():
         game.play_game()
     except FileNotFoundError:
         print(f"Model not found: {model_path}")
-        print("Run training first, then pass the model directory (e.g., ./models/<run_name>)")
+        print(
+            "Run training first, then pass the model directory (e.g., ./models/<run_name>)"
+        )
     except KeyboardInterrupt:
         print("\nGoodbye!")
 

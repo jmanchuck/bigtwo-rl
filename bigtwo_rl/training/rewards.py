@@ -152,6 +152,42 @@ class RankingReward(BaseReward):
         return max(0, combined_score - 1.0)
 
 
+class ScoreMarginReward(BaseReward):
+    """Reward based on score margin / normalized card advantage.
+
+    Provides a continuous signal reflecting how well the player did relative to
+    opponents. Output is roughly bounded in [-1, 1].
+    """
+
+    def game_reward(self, winner_player, player_idx, cards_left, all_cards_left):
+        # If provided a winner, give a clear positive/negative signal
+        if winner_player is not None:
+            if player_idx == winner_player:
+                base = 1.0
+            else:
+                base = -1.0
+        else:
+            base = 0.0
+
+        # margin: average opponents' remaining cards minus player's remaining cards
+        if all_cards_left is None or len(all_cards_left) <= 1:
+            margin = 0.0
+        else:
+            opponents = [c for i, c in enumerate(all_cards_left) if i != player_idx]
+            avg_opp = sum(opponents) / len(opponents)
+            # normalize by max cards (13)
+            margin = (avg_opp - cards_left) / 13.0
+
+        # Combine base win/loss signal with margin, weighted to keep magnitude reasonable
+        return float(0.5 * base + 0.5 * margin)
+
+    def episode_bonus(self, games_won, total_games, avg_cards_left):
+        # Encourage consistent performance: normalized win-rate minus avg_cards_left factor
+        win_rate = games_won / total_games if total_games > 0 else 0.0
+        normalized_cards = 1.0 - min(avg_cards_left / 13.0, 1.0)
+        return float(0.5 * win_rate + 0.5 * normalized_cards - 0.5)
+
+
 class FunctionReward(BaseReward):
     """Wrapper to use old function-based rewards with new API."""
 
@@ -161,7 +197,9 @@ class FunctionReward(BaseReward):
     def game_reward(self, winner_player, player_idx, cards_left, all_cards_left=None):
         """Convert function call to game reward."""
         if all_cards_left is not None and len(all_cards_left) > 0:
-            return self.reward_func(winner_player, player_idx, cards_left, all_cards_left)
+            return self.reward_func(
+                winner_player, player_idx, cards_left, all_cards_left
+            )
         else:
             return self.reward_func(winner_player, player_idx, cards_left)
 
@@ -177,13 +215,16 @@ REWARD_FUNCTIONS = {
     "aggressive_penalty": AggressivePenaltyReward,
     "progressive": ProgressiveReward,
     "ranking": RankingReward,
+    "score_margin": ScoreMarginReward,
 }
 
 
 def get_reward_function(name="default"):
     """Get reward function by name, returns instantiated class."""
     if name not in REWARD_FUNCTIONS:
-        raise ValueError(f"Unknown reward function '{name}'. Available: {list(REWARD_FUNCTIONS.keys())}")
+        raise ValueError(
+            f"Unknown reward function '{name}'. Available: {list(REWARD_FUNCTIONS.keys())}"
+        )
     return REWARD_FUNCTIONS[name]()
 
 
@@ -197,18 +238,24 @@ def default_reward(winner_player, player_idx, cards_left):
     """Legacy default reward function."""
     return DefaultReward().game_reward(winner_player, player_idx, cards_left)
 
+
 def sparse_reward(winner_player, player_idx, cards_left):
     """Legacy sparse reward function."""
     return SparseReward().game_reward(winner_player, player_idx, cards_left)
+
 
 def aggressive_penalty_reward(winner_player, player_idx, cards_left):
     """Legacy aggressive penalty reward function."""
     return AggressivePenaltyReward().game_reward(winner_player, player_idx, cards_left)
 
+
 def progressive_reward(winner_player, player_idx, cards_left):
     """Legacy progressive reward function."""
     return ProgressiveReward().game_reward(winner_player, player_idx, cards_left)
 
+
 def ranking_reward(winner_player, player_idx, cards_left, all_cards_left):
     """Legacy ranking reward function."""
-    return RankingReward().game_reward(winner_player, player_idx, cards_left, all_cards_left)
+    return RankingReward().game_reward(
+        winner_player, player_idx, cards_left, all_cards_left
+    )

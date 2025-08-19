@@ -3,7 +3,6 @@
 
 import numpy as np
 from typing import List, Dict
-import itertools
 from ..core.rl_wrapper import BigTwoRLWrapper
 from ..agents import BaseAgent, RandomAgent, GreedyAgent, PPOAgent
 
@@ -20,7 +19,7 @@ class Tournament:
         """
         self.agents = agents
 
-    def run_round_robin(self, num_games: int = 100) -> Dict:
+    def run(self, num_games: int = 100) -> Dict:
         """
         Run round-robin tournament where each agent plays against every other agent.
 
@@ -30,7 +29,7 @@ class Tournament:
         Returns:
             Dict with tournament results and statistics
         """
-        return run_round_robin_tournament(self.agents, num_games)
+        return run_tournament(self.agents, num_games)
 
     def add_agent(self, agent: BaseAgent):
         """Add an agent to the tournament."""
@@ -63,8 +62,6 @@ def play_single_game(agents: List[BaseAgent], env: BigTwoRLWrapper):
         if hasattr(agent, "set_env_reference"):
             agent.set_env_reference(env)
 
-    last_winner = -1
-
     while not done:
         current_player = env.env.current_player
         if current_player < len(agents):
@@ -80,26 +77,23 @@ def play_single_game(agents: List[BaseAgent], env: BigTwoRLWrapper):
 
         obs, reward, done, _, info = env.step(action)
 
-        # Track who won based on the environment's internal state
-        if hasattr(env.env, "done") and env.env.done:
-            # Find winner (player with 0 cards)
+        if done:
+            # Game finished - determine winner directly from hands, not from reward
+            winner_idx = -1
             for p in range(env.env.num_players):
                 if np.sum(env.env.hands[p]) == 0:
-                    last_winner = p
+                    winner_idx = p
                     break
-
-        if done:
-            # Game finished - use tracked winner or reward signal
-            winner_idx = last_winner if last_winner != -1 else (0 if reward > 0 else -1)
 
             # Record results for all agents
             for i, agent in enumerate(agents):
                 if i < env.env.num_players:  # Only count agents that actually played
-                    won = i == winner_idx
-                    agent.record_game_result(won)
+                    agent.record_game_result(i == winner_idx)
 
             # Capture cards remaining for each player
-            cards_remaining = [np.sum(env.env.hands[p]) for p in range(env.env.num_players)]
+            cards_remaining = [
+                np.sum(env.env.hands[p]) for p in range(env.env.num_players)
+            ]
             return winner_idx, reward, cards_remaining
 
     # No winner (should not happen); capture current hand sizes
@@ -145,17 +139,20 @@ def play_four_player_series(agents: List[BaseAgent], num_games: int = 100) -> Di
         "players": [a.name for a in agents],
         "wins": local_wins,
         "win_rates": {name: wins / total_games for name, wins in local_wins.items()},
-        "avg_cards_left": {name: local_cards_left_sum[name] / total_games for name in local_cards_left_sum},
+        "avg_cards_left": {
+            name: local_cards_left_sum[name] / total_games
+            for name in local_cards_left_sum
+        },
         "draws": draws,
         "cards_left_by_game": cards_left_history,
         "games_played": total_games,
     }
 
 
-def run_round_robin_tournament(agents: List[BaseAgent], num_games: int = 100) -> Dict:
+def run_tournament(agents: List[BaseAgent], num_games: int = 100) -> Dict:
     """Run a round-robin tournament over all 4-player combinations of the agents."""
-    if len(agents) < 4:
-        raise ValueError("Tournament requires at least 4 agents")
+    if len(agents) != 4:
+        raise ValueError("Tournament requires exactly 4 agents")
 
     matchup_results = []
 
@@ -163,16 +160,12 @@ def run_round_robin_tournament(agents: List[BaseAgent], num_games: int = 100) ->
     for agent in agents:
         agent.reset_stats()
 
-    print(f"Running 4-player round-robin tournament with {len(agents)} agents, {num_games} games per table...")
+    print(
+        f"Running 4-player tournament with {len(agents)} agents, {num_games} games..."
+    )
 
-    # Play all 4-agent combinations
-    for combo in itertools.combinations(range(len(agents)), 4):
-        group_agents = [agents[i] for i in combo]
-        group_names = ", ".join(a.name for a in group_agents)
-        print(f"Playing table: {group_names}...")
-
-        result = play_four_player_series(group_agents, num_games)
-        matchup_results.append(result)
+    result = play_four_player_series(agents, num_games)
+    matchup_results.append(result)
 
     # Calculate overall stats
     agent_stats: Dict[str, Dict] = {}
@@ -190,23 +183,34 @@ def run_round_robin_tournament(agents: List[BaseAgent], num_games: int = 100) ->
     }
 
 
-def _create_tournament_summary(agents: List[BaseAgent], matchup_results: List[Dict]) -> str:
+def _create_tournament_summary(
+    agents: List[BaseAgent], matchup_results: List[Dict]
+) -> str:
     """Create a readable tournament summary for 4-player tables."""
     summary = []
     summary.append("Tournament Results:")
     summary.append("=" * 50)
 
     # Sort agents by win rate
-    sorted_agents = sorted(agents, key=lambda a: a.get_win_rate(), reverse=True)
+    # Use agent index to disambiguate duplicate names in the summary output
+    indexed_agents = list(enumerate(agents))  # list of (index, agent)
+    sorted_indexed_agents = sorted(
+        indexed_agents, key=lambda ia: ia[1].get_win_rate(), reverse=True
+    )
 
-    for i, agent in enumerate(sorted_agents):
-        summary.append(f"{i+1}. {agent.name}: {agent.wins}/{agent.games_played} wins ({agent.get_win_rate():.2%})")
+    for rank, (orig_index, agent) in enumerate(sorted_indexed_agents, start=1):
+        display_name = f"{agent.name}#{orig_index+1}"
+        summary.append(
+            f"{rank}. {display_name}: {agent.wins}/{agent.games_played} wins ({agent.get_win_rate():.2%})"
+        )
 
     summary.append("\nTable Results:")
     summary.append("-" * 30)
     for result in matchup_results:
         players = ", ".join(result["players"])  # type: ignore[index]
-        wins_str = ", ".join(f"{name}: {result['wins'][name]}" for name in result["players"])  # type: ignore[index]
+        wins_str = ", ".join(
+            f"{name}: {result['wins'][name]}" for name in result["players"]
+        )  # type: ignore[index]
         summary.append(f"{players} | {wins_str} | draws: {result['draws']}")
 
     return "\n".join(summary)
@@ -253,7 +257,7 @@ if __name__ == "__main__":
             print(f"Failed to load PPO agent: {e}")
 
         # Run tournament
-        results = run_round_robin_tournament(agents, num_games=50)
+        results = run_tournament(agents, num_games=50)
         print(results["tournament_summary"])
     else:
         print("Usage: python tournament.py example")
