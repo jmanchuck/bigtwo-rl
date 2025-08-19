@@ -188,26 +188,6 @@ class ScoreMarginReward(BaseReward):
         return float(0.5 * win_rate + 0.5 * normalized_cards - 0.5)
 
 
-class FunctionReward(BaseReward):
-    """Wrapper to use old function-based rewards with new API."""
-
-    def __init__(self, reward_func):
-        self.reward_func = reward_func
-
-    def game_reward(self, winner_player, player_idx, cards_left, all_cards_left=None):
-        """Convert function call to game reward."""
-        if all_cards_left is not None and len(all_cards_left) > 0:
-            return self.reward_func(
-                winner_player, player_idx, cards_left, all_cards_left
-            )
-        else:
-            return self.reward_func(winner_player, player_idx, cards_left)
-
-    def episode_bonus(self, games_won, total_games, avg_cards_left):
-        """No episode bonus for function-based rewards."""
-        return 0
-
-
 # Map of reward function names to reward classes
 REWARD_FUNCTIONS = {
     "default": DefaultReward,

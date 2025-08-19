@@ -1,13 +1,11 @@
 """Tests for immediate reward functionality."""
 
 import numpy as np
-import pytest
 from bigtwo_rl.core.rl_wrapper import BigTwoRLWrapper
 from bigtwo_rl.training.rewards import (
     BaseReward,
     DefaultReward,
     SparseReward,
-    FunctionReward,
 )
 
 
@@ -150,23 +148,6 @@ class TestImmediateRewards:
             1, 0, 10
         )  # Player 0 loses with 10 cards
         assert loss_reward == -0.25  # Sparse loss penalty
-
-    def test_function_reward_wrapper(self):
-        """Test FunctionReward wrapper for legacy functions."""
-
-        def simple_reward_func(winner, player, cards_left):
-            return 5.0 if player == winner else -1.0
-
-        wrapped_reward = FunctionReward(simple_reward_func)
-        env = BigTwoRLWrapper(games_per_episode=1, reward_function=wrapped_reward)
-        env.reset()
-
-        # Test the wrapped function directly
-        reward = wrapped_reward.game_reward(0, 0, 0)  # Player 0 wins
-        assert reward == 5.0
-
-        reward = wrapped_reward.game_reward(0, 1, 5)  # Player 1 loses with 5 cards
-        assert reward == -1.0
 
     def test_mid_step_rewards_are_zero(self):
         """Test that game reward is only called when games end."""
