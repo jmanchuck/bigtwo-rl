@@ -52,7 +52,7 @@ from bigtwo_rl.evaluation import Evaluator
 evaluator = Evaluator(num_games=100)
 results = evaluator.evaluate_model("./models/my_model/best_model")
 # results is a series summary dict with keys:
-#  - players, wins, win_rates, avg_cards_left, draws, games_played, cards_left_by_game
+#  - players, wins, win_rates, avg_cards_left, games_played, cards_left_by_game
 print("Players:", results["players"]) 
 print("Wins:", results["wins"]) 
 print("Win rates:", results["win_rates"]) 

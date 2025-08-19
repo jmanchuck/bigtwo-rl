@@ -34,7 +34,9 @@ class Tournament:
         """
         return run_tournament(self.agents, num_games, self.n_processes)
 
-    def run_parallel(self, num_games: int = 100, n_processes: Optional[int] = None) -> Dict:
+    def run_parallel(
+        self, num_games: int = 100, n_processes: Optional[int] = None
+    ) -> Dict:
         """
         Run tournament with explicit parallel processing control.
 
@@ -108,7 +110,9 @@ def play_single_game(agents: List[BaseAgent], env: BigTwoRLWrapper):
                     agent.record_game_result(i == winner_idx)
 
             # Capture cards remaining for each player
-            cards_remaining = [np.sum(env.env.hands[p]) for p in range(env.env.num_players)]
+            cards_remaining = [
+                np.sum(env.env.hands[p]) for p in range(env.env.num_players)
+            ]
             return winner_idx, reward, cards_remaining
 
     # No winner (should not happen); capture current hand sizes
@@ -124,7 +128,9 @@ def _serialize_agent(agent: BaseAgent) -> Dict:
         return {"type": "greedy", "name": agent.name}
     elif isinstance(agent, PPOAgent):
         if agent.model_path is None:
-            raise ValueError(f"Cannot serialize PPOAgent '{agent.name}' without model_path")
+            raise ValueError(
+                f"Cannot serialize PPOAgent '{agent.name}' without model_path"
+            )
         return {"type": "ppo", "name": agent.name, "model_path": agent.model_path}
     else:
         raise ValueError(f"Cannot serialize agent type: {type(agent)}")
@@ -147,7 +153,7 @@ def _deserialize_agent(agent_config: Dict) -> BaseAgent:
 
 def _run_game_batch(
     args: Tuple[List[Dict], int, int],
-) -> Tuple[Dict[str, int], Dict[str, int], int, List[List[int]]]:
+) -> Tuple[Dict[str, int], Dict[str, int], List[List[int]]]:
     """
     Worker function to run a batch of games in parallel.
 
@@ -155,7 +161,7 @@ def _run_game_batch(
         args: Tuple of (agent_configs, num_games, random_seed)
 
     Returns:
-        Tuple of (wins_dict, cards_left_sum_dict, draws, cards_history)
+        Tuple of (wins_dict, cards_left_sum_dict, cards_history)
     """
     agent_configs, num_games, random_seed = args
 
@@ -171,26 +177,26 @@ def _run_game_batch(
     # Initialize tracking
     wins = {a.name: 0 for a in agents}
     cards_left_sum = {a.name: 0 for a in agents}
-    draws = 0
     cards_history = []
 
     # Run games
     for _ in range(num_games):
         winner_idx, _, cards_remaining = play_single_game(agents, env)
-        if winner_idx == -1:
-            draws += 1
-        else:
+        if winner_idx != -1:
             wins[agents[winner_idx].name] += 1
+        # Note: winner_idx should never be -1 in Big Two, but keeping check for safety
 
         # Accumulate cards remaining
         for i, agent in enumerate(agents):
             cards_left_sum[agent.name] += cards_remaining[i]
         cards_history.append(cards_remaining)
 
-    return wins, cards_left_sum, draws, cards_history
+    return wins, cards_left_sum, cards_history
 
 
-def play_four_player_series(agents: List[BaseAgent], num_games: int = 100, n_processes: Optional[int] = None) -> Dict:
+def play_four_player_series(
+    agents: List[BaseAgent], num_games: int = 100, n_processes: Optional[int] = None
+) -> Dict:
     """Play a series of 4-player matches between the provided four agents.
 
     Args:
@@ -235,14 +241,12 @@ def play_four_player_series(agents: List[BaseAgent], num_games: int = 100, n_pro
     # Aggregate results
     total_wins = {a.name: 0 for a in agents}
     total_cards_left_sum = {a.name: 0 for a in agents}
-    total_draws = 0
     all_cards_history = []
 
-    for wins, cards_left_sum, draws, cards_history in results:
+    for wins, cards_left_sum, cards_history in results:
         for name in total_wins:
             total_wins[name] += wins[name]
             total_cards_left_sum[name] += cards_left_sum[name]
-        total_draws += draws
         all_cards_history.extend(cards_history)
 
     # Update agent stats (approximate since we can't update across processes)
@@ -254,29 +258,31 @@ def play_four_player_series(agents: List[BaseAgent], num_games: int = 100, n_pro
         "players": [a.name for a in agents],
         "wins": total_wins,
         "win_rates": {name: wins / num_games for name, wins in total_wins.items()},
-        "avg_cards_left": {name: total_cards_left_sum[name] / num_games for name in total_cards_left_sum},
-        "draws": total_draws,
+        "avg_cards_left": {
+            name: total_cards_left_sum[name] / num_games
+            for name in total_cards_left_sum
+        },
         "cards_left_by_game": all_cards_history,
         "games_played": num_games,
     }
 
 
-def _play_four_player_series_sequential(agents: List[BaseAgent], num_games: int) -> Dict:
+def _play_four_player_series_sequential(
+    agents: List[BaseAgent], num_games: int
+) -> Dict:
     """Sequential version of play_four_player_series for comparison and small runs."""
     env = BigTwoRLWrapper(num_players=4, games_per_episode=1)
 
     # Local aggregates per agent
     local_wins = {a.name: 0 for a in agents}
     local_cards_left_sum = {a.name: 0 for a in agents}
-    draws = 0
     cards_left_history: List[List[int]] = []
 
     for _ in range(num_games):
         winner_idx, _, cards_remaining = play_single_game(agents, env)
-        if winner_idx == -1:
-            draws += 1
-        else:
+        if winner_idx != -1:
             local_wins[agents[winner_idx].name] += 1
+        # Note: winner_idx should never be -1 in Big Two, but keeping check for safety
 
         # Accumulate cards remaining per player
         for i, a in enumerate(agents):
@@ -287,14 +293,18 @@ def _play_four_player_series_sequential(agents: List[BaseAgent], num_games: int)
         "players": [a.name for a in agents],
         "wins": local_wins,
         "win_rates": {name: wins / num_games for name, wins in local_wins.items()},
-        "avg_cards_left": {name: local_cards_left_sum[name] / num_games for name in local_cards_left_sum},
-        "draws": draws,
+        "avg_cards_left": {
+            name: local_cards_left_sum[name] / num_games
+            for name in local_cards_left_sum
+        },
         "cards_left_by_game": cards_left_history,
         "games_played": num_games,
     }
 
 
-def run_tournament(agents: List[BaseAgent], num_games: int = 100, n_processes: Optional[int] = None) -> Dict:
+def run_tournament(
+    agents: List[BaseAgent], num_games: int = 100, n_processes: Optional[int] = None
+) -> Dict:
     """Run a round-robin tournament over all 4-player combinations of the agents."""
     if len(agents) != 4:
         raise ValueError("Tournament requires exactly 4 agents")
@@ -310,7 +320,9 @@ def run_tournament(agents: List[BaseAgent], num_games: int = 100, n_processes: O
         processes = n_processes or min(mp.cpu_count(), num_games)
         parallel_info = f" ({processes} processes)"
 
-    print(f"Running 4-player tournament with {len(agents)} agents, {num_games} games{parallel_info}...")
+    print(
+        f"Running 4-player tournament with {len(agents)} agents, {num_games} games{parallel_info}..."
+    )
 
     result = play_four_player_series(agents, num_games, n_processes)
     matchup_results.append(result)
@@ -331,7 +343,9 @@ def run_tournament(agents: List[BaseAgent], num_games: int = 100, n_processes: O
     }
 
 
-def _create_tournament_summary(agents: List[BaseAgent], matchup_results: List[Dict]) -> str:
+def _create_tournament_summary(
+    agents: List[BaseAgent], matchup_results: List[Dict]
+) -> str:
     """Create a readable tournament summary for 4-player tables."""
     summary = []
     summary.append("Tournament Results:")
@@ -340,17 +354,47 @@ def _create_tournament_summary(agents: List[BaseAgent], matchup_results: List[Di
     # Sort agents by win rate
     # Use agent index to disambiguate duplicate names in the summary output
     indexed_agents = list(enumerate(agents))  # list of (index, agent)
-    sorted_indexed_agents = sorted(indexed_agents, key=lambda ia: ia[1].get_win_rate(), reverse=True)
+    sorted_indexed_agents = sorted(
+        indexed_agents, key=lambda ia: ia[1].get_win_rate(), reverse=True
+    )
 
     for rank, (orig_index, agent) in enumerate(sorted_indexed_agents, start=1):
         display_name = f"{agent.name}#{orig_index+1}"
-        summary.append(f"{rank}. {display_name}: {agent.wins}/{agent.games_played} wins ({agent.get_win_rate():.2%})")
+        summary.append(
+            f"{rank}. {display_name}: {agent.wins}/{agent.games_played} wins ({agent.get_win_rate():.2%})"
+        )
+
+    # Add card statistics from the matchup results
+    if matchup_results:
+        result = matchup_results[0]  # Single 4-player table result
+        summary.append("\nCard Statistics:")
+        summary.append("-" * 30)
+
+        # Calculate total cards left for each player across all games
+        total_cards_by_player = {}
+        for name in result["players"]:
+            total_cards_by_player[name] = (
+                result["avg_cards_left"][name] * result["games_played"]
+            )
+
+        # Sort by average cards left (ascending - fewer cards left is better)
+        sorted_by_avg_cards = sorted(
+            result["avg_cards_left"].items(), key=lambda x: x[1]
+        )
+
+        for name, avg_cards in sorted_by_avg_cards:
+            total_cards = int(total_cards_by_player[name])
+            summary.append(
+                f"{name}: {total_cards} total cards left, {avg_cards:.1f} avg cards left"
+            )
 
     summary.append("\nTable Results:")
     summary.append("-" * 30)
     for result in matchup_results:
         players = ", ".join(result["players"])  # type: ignore[index]
-        wins_str = ", ".join(f"{name}: {result['wins'][name]}" for name in result["players"])  # type: ignore[index]
+        wins_str = ", ".join(
+            f"{name}: {result['wins'][name]}" for name in result["players"]
+        )  # type: ignore[index]
         summary.append(f"{players} | {wins_str}")
 
     return "\n".join(summary)
