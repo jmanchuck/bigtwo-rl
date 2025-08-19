@@ -239,29 +239,10 @@ class ScoreMarginReward(BaseReward):
         return float(0.5 * win_rate + 0.5 * normalized_cards - 0.5)
 
 
-# Map of reward function names to reward classes
-REWARD_FUNCTIONS = {
-    "default": DefaultReward,
-    "sparse": SparseReward,
-    "aggressive_penalty": AggressivePenaltyReward,
-    "progressive": ProgressiveReward,
-    "ranking": RankingReward,
-    "score_margin": ScoreMarginReward,
-}
-
-
-def get_reward_function(name: str = "default") -> BaseReward:
-    """Get reward function by name, returns instantiated class."""
-    if name not in REWARD_FUNCTIONS:
-        raise ValueError(
-            f"Unknown reward function '{name}'. Available: {list(REWARD_FUNCTIONS.keys())}"
-        )
-    return REWARD_FUNCTIONS[name]()
-
-
-def list_reward_functions() -> List[str]:
-    """List all available reward function names."""
-    return list(REWARD_FUNCTIONS.keys())
+# Legacy support - reward classes are now imported directly
+# Example usage:
+# from bigtwo_rl.training.rewards import DefaultReward
+# reward = DefaultReward()
 
 
 # Legacy function-based rewards (for backward compatibility)

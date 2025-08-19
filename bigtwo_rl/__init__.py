@@ -16,6 +16,11 @@ from .core import BigTwoRLWrapper, ToyBigTwoFullRules
 from .core.observation_builder import ObservationBuilder, ObservationConfig
 from .agents import BaseAgent, RandomAgent, GreedyAgent, PPOAgent
 
+# Training API exports - import these explicitly for training
+# from bigtwo_rl.training import Trainer
+# from bigtwo_rl.training.rewards import DefaultReward, SparseReward, etc.
+# from bigtwo_rl.training.hyperparams import DefaultConfig, AggressiveConfig, etc.
+
 __all__ = [
     "BigTwoRLWrapper",
     "ToyBigTwoFullRules",

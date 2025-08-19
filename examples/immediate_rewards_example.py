@@ -15,6 +15,7 @@ Key improvements with immediate rewards:
 import numpy as np
 from bigtwo_rl.training import Trainer
 from bigtwo_rl.training.rewards import BaseReward
+from bigtwo_rl.training.hyperparams import FastExperimentalConfig
 from bigtwo_rl.evaluation import Evaluator
 
 
@@ -95,7 +96,7 @@ def compare_immediate_vs_delayed_training():
     print("1. Training with Immediate Rewards (FastLearningReward):")
     immediate_trainer = Trainer(
         reward_function=FastLearningReward(),
-        hyperparams="fast_experimental",  # Use fast hyperparams for demo
+        hyperparams=FastExperimentalConfig(),
     )
     immediate_model, immediate_dir = immediate_trainer.train(
         total_timesteps=train_steps, model_name="immediate_reward_demo"
@@ -105,7 +106,8 @@ def compare_immediate_vs_delayed_training():
     # Train with delayed rewards
     print("\n2. Training with Delayed Rewards (DelayedOnlyReward):")
     delayed_trainer = Trainer(
-        reward_function=DelayedOnlyReward(), hyperparams="fast_experimental"
+        reward_function=DelayedOnlyReward(),
+        hyperparams=FastExperimentalConfig(),
     )
     delayed_model, delayed_dir = delayed_trainer.train(
         total_timesteps=train_steps, model_name="delayed_reward_demo"

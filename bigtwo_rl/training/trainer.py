@@ -1,15 +1,15 @@
 """Training infrastructure for Big Two PPO agents."""
 
 import os
-from typing import Callable, Union, Optional, Any
+from typing import Optional, Any
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.callbacks import EvalCallback, BaseCallback
 
 from ..core.rl_wrapper import BigTwoRLWrapper
-from .hyperparams import get_config, list_configs
-from .rewards import BaseReward, get_reward_function, list_reward_functions
+from .hyperparams import BaseConfig
+from .rewards import BaseReward
 from .opponent_pool import OpponentPool, EnvOpponentProvider
 
 
@@ -41,8 +41,8 @@ class Trainer:
 
     def __init__(
         self,
-        reward_function: Union[str, BaseReward, Callable] = "default",
-        hyperparams: Union[str, dict] = "default",
+        reward_function: BaseReward,
+        hyperparams: BaseConfig,
         eval_freq: int = 5000,
         controlled_player: int = 0,
         opponent_mixture: Optional[dict] = None,
@@ -54,28 +54,21 @@ class Trainer:
         Initialize trainer.
 
         Args:
-            reward_function: Reward function - can be string name, BaseReward instance, or callable
-            hyperparams: Hyperparameters - can be string name or dict
+            reward_function: Reward function instance (e.g., DefaultReward())
+            hyperparams: Hyperparameter configuration instance (e.g., DefaultConfig())
             eval_freq: How often to evaluate during training
+            controlled_player: Which player the agent controls (0-3)
+            opponent_mixture: Dict specifying opponent mix ratios
+            snapshot_dir: Directory to save model snapshots
+            snapshot_every_steps: How often to save snapshots
+            observation_config: Custom observation configuration
         """
-        # Handle reward function
-        if isinstance(reward_function, str):
-            self.reward_function = get_reward_function(reward_function)
-            self.reward_name = reward_function
-        elif isinstance(reward_function, BaseReward):
-            self.reward_function = reward_function
-            self.reward_name = reward_function.__class__.__name__
-        else:
-            self.reward_function = reward_function
-            self.reward_name = getattr(reward_function, "__name__", "custom")
+        # Store reward function and hyperparameters directly
+        self.reward_function = reward_function
+        self.reward_name = reward_function.__class__.__name__
 
-        # Handle hyperparameters
-        if isinstance(hyperparams, str):
-            self.config = get_config(hyperparams)
-            self.config_name = hyperparams
-        else:
-            self.config = hyperparams
-            self.config_name = "custom"
+        self.config = hyperparams.to_dict()
+        self.config_name = hyperparams.__class__.__name__
 
         self.eval_freq = eval_freq
         self.controlled_player = controlled_player
@@ -220,13 +213,3 @@ class Trainer:
             print(f"Training completed! Model saved in {models_dir}")
 
         return model, models_dir
-
-    @staticmethod
-    def list_configs():
-        """List available hyperparameter configurations."""
-        return list_configs()
-
-    @staticmethod
-    def list_reward_functions():
-        """List available reward functions."""
-        return list_reward_functions()

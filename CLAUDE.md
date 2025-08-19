@@ -110,23 +110,36 @@ logs/                                # Tensorboard training logs
 ### Basic Training
 ```python
 from bigtwo_rl.training import Trainer
+from bigtwo_rl.training.rewards import DefaultReward
+from bigtwo_rl.training.hyperparams import DefaultConfig
 
-# Simple training with defaults
-trainer = Trainer()
+# Explicit class-based training configuration
+trainer = Trainer(
+    reward_function=DefaultReward(),
+    hyperparams=DefaultConfig()
+)
 model, model_dir = trainer.train(total_timesteps=25000)
 ```
 
 ### Custom Reward Function
 ```python
-from bigtwo_rl.training import Trainer, BaseReward
+from bigtwo_rl.training import Trainer
+from bigtwo_rl.training.rewards import BaseReward
+from bigtwo_rl.training.hyperparams import AggressiveConfig
 
 class MyReward(BaseReward):
-    def calculate(self, winner, player, cards_left, all_cards=None):
-        if player == winner:
+    def game_reward(self, winner_player, player_idx, cards_left, all_cards_left=None):
+        if player_idx == winner_player:
             return 10
         return -(cards_left ** 2) * 0.5
+    
+    def episode_bonus(self, games_won, total_games, avg_cards_left):
+        return 0  # No episode bonus
 
-trainer = Trainer(reward_function=MyReward(), hyperparams="aggressive")
+trainer = Trainer(
+    reward_function=MyReward(), 
+    hyperparams=AggressiveConfig()
+)
 model, model_dir = trainer.train(total_timesteps=15000)
 ```
 
@@ -143,7 +156,7 @@ agents = [
 ]
 
 tournament = Tournament(agents)
-results = tournament.run_round_robin(num_games=100)
+results = tournament.run(num_games=100)
 print(results["tournament_summary"])
 ```
 
@@ -153,7 +166,7 @@ from bigtwo_rl.evaluation import Evaluator
 
 evaluator = Evaluator(num_games=100)
 results = evaluator.evaluate_model("./models/my_model/best_model")
-print(results)
+# Access results: win_rates, avg_cards_left, total wins, game history
 ```
 
 ## Key RL Concepts
@@ -170,11 +183,12 @@ print(results)
 **Multi-Game Episodes**: Each training episode consists of multiple games (configurable) with reward only at episode end to address card dealing randomness.
 
 **Reward Functions**:
-- `default`: Win +5, loss penalty scaled by remaining cards
-- `sparse`: Simple win (+1) vs loss (-1) 
-- `aggressive_penalty`: Higher penalties for losing with many cards
-- `progressive`: Rewards progress (fewer cards = better reward)
-- `ranking`: Rewards based on final ranking among all players
+- `DefaultReward`: Balanced win/loss rewards with card-based penalties
+- `SparseReward`: Simple win (+1) vs loss (-1) 
+- `AggressivePenaltyReward`: Higher penalties for losing with many cards
+- `ProgressiveReward`: Rewards progress (fewer cards = better reward)
+- `RankingReward`: Rewards based on final ranking among all players
+- `ScoreMarginReward`: Continuous reward based on card advantage vs opponents
 
 ## Hyperparameters Explained (Big Two Context)
 

@@ -8,6 +8,8 @@ gives the biggest advantage.
 """
 
 from bigtwo_rl.training import Trainer
+from bigtwo_rl.training.rewards import DefaultReward, ProgressiveReward, RankingReward
+from bigtwo_rl.training.hyperparams import FastExperimentalConfig
 from bigtwo_rl.core.observation_builder import ObservationBuilder
 from bigtwo_rl.agents import PPOAgent, RandomAgent, GreedyAgent
 from bigtwo_rl.evaluation import Tournament
@@ -22,9 +24,9 @@ def main():
     blind_config = ObservationBuilder().minimal().build()
 
     trainer_blind = Trainer(
+        reward_function=DefaultReward(),
+        hyperparams=FastExperimentalConfig(),
         observation_config=blind_config,
-        reward_function="default",
-        hyperparams="fast_experimental",  # Quick training for demo
     )
 
     print(f"   Observation space size: {blind_config._total_size} features")
@@ -45,9 +47,9 @@ def main():
     )
 
     trainer_memory = Trainer(
+        reward_function=ProgressiveReward(),
+        hyperparams=FastExperimentalConfig(),
         observation_config=memory_config,
-        reward_function="progressive",  # Different reward for variety
-        hyperparams="fast_experimental",
     )
 
     print(f"   Observation space size: {memory_config._total_size} features")
@@ -65,9 +67,9 @@ def main():
     )
 
     trainer_strategic = Trainer(
+        reward_function=RankingReward(),
+        hyperparams=FastExperimentalConfig(),
         observation_config=strategic_config,
-        reward_function="ranking",
-        hyperparams="fast_experimental",
     )
 
     print(f"   Observation space size: {strategic_config._total_size} features")
