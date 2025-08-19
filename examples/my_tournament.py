@@ -23,9 +23,12 @@ def main():
 
     print(f"Agents: {[a.name for a in agents]}")
 
-    # Run tournament (adjust num_games as needed)
-    tournament = Tournament(agents)
-    results = tournament.run(num_games=50)
+    # Run tournament with multiprocessing (adjust num_games as needed)
+    # n_processes=None for auto-detection, or specify a number like n_processes=4
+    tournament = Tournament(agents, n_processes=None)
+    results = tournament.run(
+        num_games=200
+    )  # Increased for better multiprocessing benefit
 
     print(results["tournament_summary"])
 

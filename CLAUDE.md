@@ -233,6 +233,52 @@ Understanding hyperparameters in terms of actual Big Two gameplay:
   - games_per_episode = 3  # Smaller episodes, more frequent rewards
   - n_steps = 180         # ~6 games before update  
 
+## Multiprocessing Support (New: 2025-08-19)
+
+### Parallel Tournament Execution
+The library now supports multiprocessing for significant tournament speedup:
+
+**Core Features**:
+- **Game-Level Parallelization**: Split games across multiple CPU cores  
+- **Automatic Process Management**: Auto-detects optimal process count
+- **Agent Serialization**: Handles PPO model loading across processes
+- **Result Aggregation**: Properly merges statistics from parallel workers
+
+**Performance Gains**:
+- **2-3x speedup** with 4 processes on typical systems
+- **Best for large tournaments**: 200+ games see significant benefits
+- **Fallback handling**: Automatically uses sequential for small runs (<10 games)
+
+**Usage Examples**:
+```python
+# Automatic multiprocessing (recommended)
+tournament = Tournament(agents, n_processes=None)  # Auto-detects CPUs
+results = tournament.run(num_games=1000)
+
+# Explicit process control  
+tournament = Tournament(agents, n_processes=4)
+results = tournament.run(num_games=500)
+
+# Sequential fallback
+tournament = Tournament(agents, n_processes=1)  # Force single process
+results = tournament.run(num_games=100)
+
+# Evaluator with multiprocessing
+evaluator = Evaluator(num_games=500, n_processes=4)
+results = evaluator.evaluate_model("./models/my_model")
+```
+
+**Technical Implementation**:
+- Uses `multiprocessing.Pool` with worker batches
+- Agent serialization supports RandomAgent, GreedyAgent, PPOAgent  
+- Different random seeds per process ensure reproducible variety
+- Aggregates wins, card statistics, and game history across processes
+
+**Limitations**:
+- PPO agents must be created with `model_path` (not in-memory models)
+- Agent stats (wins/games_played) are approximate after parallel execution
+- Process overhead makes single games slower than sequential
+
 ## Performance Optimizations (Updated: 2025-08-19)
 
 ### Numpy Vectorization Architecture

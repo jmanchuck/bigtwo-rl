@@ -8,14 +8,16 @@ from .tournament import play_four_player_series
 class Evaluator:
     """High-level evaluator for Big Two agents."""
 
-    def __init__(self, num_games: int = 100):
+    def __init__(self, num_games: int = 100, n_processes=None):
         """
         Initialize evaluator.
 
         Args:
             num_games: Number of games per evaluation
+            n_processes: Number of processes for parallel execution (None = auto)
         """
         self.num_games = num_games
+        self.n_processes = n_processes
 
     def evaluate_agent(self, agent: BaseAgent, baselines: bool = True) -> dict:
         """
@@ -42,7 +44,7 @@ class Evaluator:
         ]
 
         table_agents = [agent] + opponents
-        return play_four_player_series(table_agents, self.num_games)
+        return play_four_player_series(table_agents, self.num_games, self.n_processes)
 
     def evaluate_model(self, model_path: str, model_name: str = None) -> dict:
         """
@@ -87,7 +89,9 @@ class Evaluator:
                 GreedyAgent("Greedy"),
             ]
             table_agents = [agent] + opponents
-            results[agent.name] = play_four_player_series(table_agents, self.num_games)
+            results[agent.name] = play_four_player_series(
+                table_agents, self.num_games, self.n_processes
+            )
         return {"per_agent_series": results}
 
 

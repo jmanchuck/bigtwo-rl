@@ -10,10 +10,12 @@ class PPOAgent(BaseAgent):
 
     def __init__(self, model_path=None, model=None, name="PPO"):
         super().__init__(name)
+        self.model_path = model_path  # Store for serialization
         if model_path:
             self.model = PPO.load(model_path)
         elif model:
             self.model = model
+            self.model_path = None  # Can't serialize if created from model object
         else:
             raise ValueError("Must provide either model_path or model")
 
