@@ -169,8 +169,8 @@ model, model_dir = trainer.train(
 ## Built-in Components
 
 ### Reward Functions
-- **default**: Win +5, loss penalty scaled by remaining cards
-- **sparse**: Simple win (+1) vs loss (-1) 
+- **default**: Rewards winning games, penalizes based on cards left, rewards overall performance series of games
+- **sparse**: Simple win (+1) vs loss (-1), no series bonus
 - **aggressive_penalty**: Higher penalties for losing with many cards
 - **progressive**: Rewards progress (fewer cards = better reward)
 - **ranking**: Rewards based on final ranking among all players
