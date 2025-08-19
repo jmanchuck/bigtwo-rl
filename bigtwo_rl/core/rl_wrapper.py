@@ -7,11 +7,12 @@ from .bigtwo import ToyBigTwoFullRules
 class BigTwoRLWrapper(gym.Env):
     """Stable-Baselines3 compatible wrapper for Big Two environment."""
     
-    def __init__(self, num_players=4, games_per_episode=10):
+    def __init__(self, num_players=4, games_per_episode=10, reward_function=None):
         super().__init__()
         self.env = ToyBigTwoFullRules(num_players)
         self.num_players = num_players
         self.games_per_episode = games_per_episode
+        self.reward_function = reward_function  # BaseReward instance for intermediate rewards
         
         # Cache for legal moves to avoid duplicate computation
         self._cached_legal_moves = None
@@ -31,7 +32,9 @@ class BigTwoRLWrapper(gym.Env):
         # Track multi-game episode state
         self.current_obs = None
         self.games_played = 0
-        self.cumulative_reward = 0.0
+        self.games_won = 0
+        self.total_cards_when_losing = 0
+        self.losses_count = 0
         
     def reset(self, seed=None, options=None):
         if seed is not None:
@@ -39,7 +42,9 @@ class BigTwoRLWrapper(gym.Env):
         
         # Reset multi-game episode tracking
         self.games_played = 0
-        self.cumulative_reward = 0.0
+        self.games_won = 0
+        self.total_cards_when_losing = 0
+        self.losses_count = 0
         
         # Clear cache on reset
         self._cached_legal_moves = None
@@ -70,24 +75,32 @@ class BigTwoRLWrapper(gym.Env):
         # Increment turn counter for cache invalidation
         self._cache_turn_counter += 1
         
-        # Get reward for current player (before rotation)
-        player_reward = rewards[self.env.current_player - 1]  # Player rotated after step
-        
-        # Handle multi-game episodes
+        # Handle multi-game episodes with immediate rewards
         if game_done:
             self.games_played += 1
-            self.cumulative_reward += player_reward
+            
+            # Calculate immediate game reward
+            game_reward = self._calculate_game_reward(self.env.current_player - 1)  # Player rotated after step
+            
+            # Update episode statistics
+            if game_reward > 0:  # Win
+                self.games_won += 1
+            else:  # Loss - track cards for episode bonus
+                cards_left = np.sum(self.env.hands[self.env.current_player - 1])
+                self.total_cards_when_losing += cards_left
+                self.losses_count += 1
             
             # Check if episode is complete
             episode_done = self.games_played >= self.games_per_episode
             
             if episode_done:
-                # Return average reward across all games
-                final_reward = self.cumulative_reward / self.games_per_episode
+                # Calculate episode bonus and add to final game reward
+                episode_bonus = self._calculate_episode_bonus()
+                final_reward = game_reward + episode_bonus
                 self.current_obs = self._vectorize_obs(raw_obs)
                 return self.current_obs, final_reward, True, False, info
             else:
-                # Start new game within episode
+                # Continue episode - return immediate game reward
                 # Clear cache for new game
                 self._cached_legal_moves = None
                 self._cache_player = None
@@ -96,7 +109,7 @@ class BigTwoRLWrapper(gym.Env):
                 
                 raw_obs = self.env.reset()
                 self.current_obs = self._vectorize_obs(raw_obs)
-                return self.current_obs, 0.0, False, False, info
+                return self.current_obs, game_reward, False, False, info
         
         self.current_obs = self._vectorize_obs(raw_obs)
         return self.current_obs, 0.0, False, False, info  # No reward until episode ends
@@ -164,3 +177,36 @@ class BigTwoRLWrapper(gym.Env):
             elif isinstance(move, list) and len(move) == 0:
                 return i
         return None
+    
+    def _calculate_game_reward(self, player_idx):
+        """Calculate immediate reward after game completion."""
+        if self.reward_function is not None:
+            # Find winner and get all cards left
+            winner_player = None
+            all_cards_left = []
+            for p in range(self.num_players):
+                cards_left = int(np.sum(self.env.hands[p]))
+                all_cards_left.append(cards_left)
+                if cards_left == 0:
+                    winner_player = p
+            
+            if winner_player is not None:
+                cards_left = all_cards_left[player_idx]
+                return self.reward_function.game_reward(winner_player, player_idx, cards_left, all_cards_left)
+        
+        # Default reward if no custom function
+        cards_left = int(np.sum(self.env.hands[player_idx]))
+        if cards_left == 0:  # Winner
+            return 1.0
+        else:
+            return -0.1 * cards_left  # Simple penalty
+    
+    def _calculate_episode_bonus(self):
+        """Calculate episode bonus based on overall performance."""
+        if self.reward_function is not None and self.games_played > 0:
+            avg_cards_left = (self.total_cards_when_losing / self.losses_count) if self.losses_count > 0 else 0
+            return self.reward_function.episode_bonus(self.games_won, self.games_played, avg_cards_left)
+        
+        # Default episode bonus
+        win_rate = self.games_won / self.games_played if self.games_played > 0 else 0
+        return 0.5 if win_rate > 0.6 else 0

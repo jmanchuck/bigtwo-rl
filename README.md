@@ -162,6 +162,46 @@ model, model_dir = trainer.train(
 - **conservative**: More stable, slower learning
 - **fast_experimental**: Quick experimentation settings
 
+## Hyperparameters Explained (Big Two Context)
+
+Understanding hyperparameters in terms of actual Big Two gameplay:
+
+### Game Structure Hierarchy
+1. **Move/Step**: Single card play action (play 3♦, pass, etc.)
+2. **Game**: Complete Big Two game (deal cards → play until someone wins)
+3. **Episode**: Multiple games grouped together (default: 5-10 games)
+4. **Training Run**: Many episodes until total_timesteps reached
+
+### Key Hyperparameters in Big Two Terms
+
+**Episode Structure:**
+- `games_per_episode` (5): How many complete Big Two games before the AI gets feedback
+  - Why multiple games? Card dealing is random, so one game isn't enough signal
+  - Agent only gets reward at episode end (after all 5 games)
+
+**Data Collection:**
+- `n_steps` (512): How many individual card plays to collect before updating the AI
+  - In Big Two terms: ~10-25 complete games worth of moves (games are ~20-40 moves)
+- `n_envs` (8): How many parallel Big Two tables running simultaneously
+  - Like having 8 different card tables generating training data at once
+
+**Learning Updates:**
+- `batch_size` (64): How many individual moves to review together when updating strategy
+- `n_epochs` (10): How many times to review the same batch of moves
+  - Like replaying the same hands 10 times to learn from them
+
+**Training Volume:**
+- `total_timesteps` (25,000): Total individual card plays for entire training
+  - At ~30 moves/game and 5 games/episode = ~150 moves/episode
+  - So 25k timesteps ≈ 167 episodes ≈ 835 total games
+
+**Example Training Session (default settings):**
+- Train for 25,000 card plays total
+- Collect 512 moves at a time from 8 parallel tables
+- Every 512 moves, update the AI by reviewing batches of 64 moves, 10 times each
+- Each training episode = 5 complete Big Two games before reward
+- **Result**: ~835 total games played during training (why 30 seconds feels short!)
+
 ### Agent Types
 - **RandomAgent**: Random baseline for evaluation
 - **GreedyAgent**: Always plays lowest valid card

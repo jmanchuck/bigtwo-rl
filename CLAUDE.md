@@ -39,7 +39,7 @@ uv run python tests/test_optimization_impact.py  # Optimization validation
 uv run python examples/play_vs_agent.py MODEL      # Play against trained agent
 
 # Monitoring
-tensorboard --logdir=./logs                        # View training metrics
+uv run python -m tensorboard.main --logdir=./logs  # View training metrics (http://localhost:6006)
 ```
 
 ## Architecture
@@ -175,6 +175,63 @@ print(results)
 - `aggressive_penalty`: Higher penalties for losing with many cards
 - `progressive`: Rewards progress (fewer cards = better reward)
 - `ranking`: Rewards based on final ranking among all players
+
+## Hyperparameters Explained (Big Two Context)
+
+Understanding hyperparameters in terms of actual Big Two gameplay:
+
+### Game Structure Hierarchy
+1. **Move/Step**: Single card play action (play 3♦, pass, etc.)
+2. **Game**: Complete Big Two game (deal cards → play until someone wins)
+3. **Episode**: Multiple games grouped together (default: 5-10 games)
+4. **Training Run**: Many episodes until total_timesteps reached
+
+### Key Hyperparameters in Big Two Terms
+
+**Episode Structure:**
+- `games_per_episode` (5): How many complete Big Two games before the AI gets feedback
+  - Why multiple games? Card dealing is random, so one game isn't enough signal
+  - Agent only gets reward at episode end (after all 5 games)
+
+**Data Collection:**
+- `n_steps` (512): How many individual card plays to collect before updating the AI
+  - In Big Two terms: ~10-25 complete games worth of moves (games are ~20-40 moves)
+- `n_envs` (8): How many parallel Big Two tables running simultaneously
+  - Like having 8 different card tables generating training data at once
+
+**Learning Updates:**
+- `batch_size` (64): How many individual moves to review together when updating strategy
+- `n_epochs` (10): How many times to review the same batch of moves
+  - Like replaying the same hands 10 times to learn from them
+
+**Training Volume:**
+- `total_timesteps` (25,000): Total individual card plays for entire training
+  - At ~30 moves/game and 5 games/episode = ~150 moves/episode
+  - So 25k timesteps ≈ 167 episodes ≈ 835 total games
+
+**Example Training Session (default settings):**
+- Train for 25,000 card plays total
+- Collect 512 moves at a time from 8 parallel tables
+- Every 512 moves, update the AI by reviewing batches of 64 moves, 10 times each
+- Each training episode = 5 complete Big Two games before reward
+- **Result**: ~835 total games played during training (why 30 seconds feels short!)
+
+
+### Recommended hyperparams to try out
+
+  n_steps Reduction:
+  - Target: n_steps = ~150 (3-5 games worth)
+  - Allows learning updates after every few complete games
+  - Maintains some stability while increasing feedback frequency
+
+  Batch Size Heuristics:
+  - batch_size = 32-48 moves (~1-2 complete games)
+  - Ensures each batch contains coherent game sequences
+  - Avoids mixing early-game and late-game moves randomly
+
+  Game-Aware Training:
+  - games_per_episode = 3  # Smaller episodes, more frequent rewards
+  - n_steps = 180         # ~6 games before update  
 
 ## Performance Optimizations (Updated: 2025-08-19)
 
