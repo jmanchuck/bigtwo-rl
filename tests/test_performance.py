@@ -4,13 +4,14 @@
 import time
 import numpy as np
 from bigtwo_rl.core.rl_wrapper import BigTwoRLWrapper
+from bigtwo_rl.core.observation_builder import standard_observation
 
 
 def test_caching_performance():
     """Test the performance improvement from legal moves caching."""
     print("Testing legal moves caching performance...")
 
-    env = BigTwoRLWrapper(num_players=4, games_per_episode=1)
+    env = BigTwoRLWrapper(observation_config=standard_observation(), num_players=4, games_per_episode=1)
     env.reset()
 
     # Simulate typical training pattern: step() followed by get_action_mask()
@@ -35,7 +36,7 @@ def test_caching_performance():
     print(f"✓ Completed {num_iterations} iterations in {elapsed:.3f}s")
     print(f"✓ Average time per step: {elapsed/num_iterations*1000:.2f}ms")
 
-    return elapsed
+    # Test completed successfully
 
 
 if __name__ == "__main__":

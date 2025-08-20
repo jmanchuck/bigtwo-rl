@@ -2,12 +2,13 @@
 """Test the RL wrapper to ensure it works correctly."""
 
 from bigtwo_rl.core.rl_wrapper import BigTwoRLWrapper
+from bigtwo_rl.core.observation_builder import standard_observation
 import numpy as np
 
 
 def test_basic_functionality():
     """Test basic environment functionality."""
-    env = BigTwoRLWrapper()
+    env = BigTwoRLWrapper(observation_config=standard_observation())
 
     print("Testing environment reset...")
     obs, info = env.reset(seed=42)

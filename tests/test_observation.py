@@ -4,6 +4,7 @@
 import numpy as np
 from bigtwo_rl.core.bigtwo import ToyBigTwoFullRules
 from bigtwo_rl.core.rl_wrapper import BigTwoRLWrapper
+from bigtwo_rl.core.observation_builder import standard_observation
 
 
 def test_observation_space():
@@ -51,7 +52,7 @@ def test_rl_wrapper():
     """Test the RL wrapper with new observation space."""
     print("\nTesting RL wrapper...")
 
-    wrapper = BigTwoRLWrapper(num_players=4, games_per_episode=1)
+    wrapper = BigTwoRLWrapper(observation_config=standard_observation(), num_players=4, games_per_episode=1)
     obs, info = wrapper.reset()
 
     # Check observation shape

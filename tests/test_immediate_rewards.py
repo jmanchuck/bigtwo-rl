@@ -2,6 +2,7 @@
 
 import numpy as np
 from bigtwo_rl.core.rl_wrapper import BigTwoRLWrapper
+from bigtwo_rl.core.observation_builder import standard_observation
 from bigtwo_rl.training.rewards import (
     BaseReward,
     DefaultReward,
@@ -38,7 +39,7 @@ class TestImmediateRewards:
     def test_immediate_game_reward_on_win(self):
         """Test that winning a game returns immediate reward."""
         test_reward = MockTestReward(game_reward_value=2.0)
-        env = BigTwoRLWrapper(games_per_episode=2, reward_function=test_reward)
+        env = BigTwoRLWrapper(observation_config=standard_observation(), games_per_episode=2, reward_function=test_reward)
         env.reset()
 
         # Test the game reward calculation directly
@@ -55,7 +56,7 @@ class TestImmediateRewards:
     def test_immediate_game_reward_on_loss(self):
         """Test that losing a game returns immediate penalty."""
         test_reward = MockTestReward()
-        env = BigTwoRLWrapper(games_per_episode=2, reward_function=test_reward)
+        env = BigTwoRLWrapper(observation_config=standard_observation(), games_per_episode=2, reward_function=test_reward)
         env.reset()
 
         # Test the game reward calculation directly for a loss
@@ -107,7 +108,7 @@ class TestImmediateRewards:
 
     def test_no_reward_function_defaults(self):
         """Test default behavior when no reward function is provided."""
-        env = BigTwoRLWrapper(games_per_episode=2)
+        env = BigTwoRLWrapper(observation_config=standard_observation(), games_per_episode=2)
         env.reset()
 
         # Test that env can work with no reward function (uses defaults)
@@ -152,7 +153,7 @@ class TestImmediateRewards:
     def test_mid_step_rewards_are_zero(self):
         """Test that game reward is only called when games end."""
         test_reward = MockTestReward(game_reward_value=10.0)
-        env = BigTwoRLWrapper(games_per_episode=1, reward_function=test_reward)
+        env = BigTwoRLWrapper(observation_config=standard_observation(), games_per_episode=1, reward_function=test_reward)
         env.reset()
 
         # Before any game ends, no game rewards should be calculated
@@ -166,7 +167,7 @@ class TestImmediateRewards:
     def test_reset_clears_episode_stats(self):
         """Test that reset properly clears episode statistics."""
         test_reward = MockTestReward()
-        env = BigTwoRLWrapper(games_per_episode=2, reward_function=test_reward)
+        env = BigTwoRLWrapper(observation_config=standard_observation(), games_per_episode=2, reward_function=test_reward)
         env.reset()
 
         # Check that environment initializes with clean episode stats

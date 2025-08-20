@@ -4,13 +4,14 @@
 import time
 import numpy as np
 from bigtwo_rl.core.rl_wrapper import BigTwoRLWrapper
+from bigtwo_rl.core.observation_builder import standard_observation
 
 
 def test_numpy_performance():
     """Test the performance benefits of numpy vectorization."""
     print("Testing numpy vectorization performance benefits...")
 
-    env = BigTwoRLWrapper(num_players=4, games_per_episode=1)
+    env = BigTwoRLWrapper(observation_config=standard_observation(), num_players=4, games_per_episode=1)
 
     # Test 1: Environment reset and observation construction
     print("\n=== Test 1: Environment Reset & Observation ===")
@@ -107,14 +108,14 @@ def test_numpy_performance():
         f"✓ Cache hit rate: {cache_info.hits/(cache_info.hits + cache_info.misses)*100:.1f}%"
     )
 
-    return elapsed
+    # Test completed successfully
 
 
 def test_memory_efficiency():
     """Test memory efficiency of numpy arrays vs lists."""
     print("\n=== Memory Efficiency Test ===")
 
-    env = BigTwoRLWrapper()
+    env = BigTwoRLWrapper(observation_config=standard_observation())
     env.reset()
 
     # Memory usage analysis
