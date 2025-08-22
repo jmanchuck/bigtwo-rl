@@ -78,12 +78,6 @@ class BigTwoMetricsCallback(BaseCallback):
                 # Log aggregated metrics to TensorBoard
                 for metric_name, value in aggregated.items():
                     self.logger.record(metric_name, value)
-                
-                # Print basic info for debugging
-                games_completed = aggregated.get('bigtwo/games_completed', 0)
-                win_rate = aggregated.get('bigtwo/win_rate', 0)
-                five_cards = aggregated.get('bigtwo/five_card_hands_played', 0)
-                # print(f"📊 Big Two Episode: {games_completed:.0f} games, {win_rate:.1%} wins, {five_cards:.0f} 5-card hands")
             else:
                 if self.verbose >= 1:
                     print("⚠️  No Big Two metrics found in episode info")

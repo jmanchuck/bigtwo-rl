@@ -5,6 +5,7 @@ from typing import Dict, Any, Optional, Tuple, List
 from .bigtwo import ToyBigTwoFullRules
 from .episode_manager import EpisodeManager
 from .opponent_controller import OpponentController
+from .game_state_tracker import GameStateTracker
 from .observation_builder import (
     ObservationConfig,
     ObservationVectorizer,
@@ -12,7 +13,24 @@ from .observation_builder import (
 
 
 class BigTwoRLWrapper(gym.Env):
-    """Stable-Baselines3 compatible wrapper for Big Two environment."""
+    """Gymnasium-compatible RL wrapper for Big Two card game environment.
+    
+    This wrapper provides a clean interface for training RL agents on Big Two,
+    with modular components for episode management, opponent control, and game state tracking.
+    
+    Key Features:
+    - Multi-game episode training with configurable episode lengths
+    - Flexible opponent system with pluggable agent providers
+    - Optimized legal move caching and action masking
+    - Comprehensive episode metrics and statistics
+    - Configurable observation features and reward functions
+    
+    Architecture:
+    - EpisodeManager: Handles multi-game episode tracking and metrics
+    - OpponentController: Manages opponent agents and autoplay logic  
+    - GameStateTracker: Provides legal move caching and action validation
+    - ObservationVectorizer: Converts game state to feature vectors
+    """
 
     def __init__(
         self,
@@ -47,11 +65,8 @@ class BigTwoRLWrapper(gym.Env):
         self.obs_vectorizer = ObservationVectorizer(self.obs_config)
         self.observation_space = self.obs_vectorizer.gymnasium_space
 
-        # Cache for legal moves to avoid duplicate computation
-        self._cached_legal_moves = None
-        self._cache_player = None
-        self._cache_state_hash = None
-        self._cache_turn_counter = 0
+        # Initialize game state tracker for caching and action masking
+        self.game_state_tracker = GameStateTracker(action_space_size=2000)
 
         # Initialize episode manager for multi-game episode tracking
         self.episode_manager = EpisodeManager(
@@ -70,17 +85,23 @@ class BigTwoRLWrapper(gym.Env):
     def reset(
         self, seed: Optional[int] = None, options: Optional[Dict[str, Any]] = None
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
+        """Reset the environment to start a new multi-game episode.
+        
+        Args:
+            seed: Random seed for reproducibility
+            options: Additional options (unused)
+            
+        Returns:
+            Tuple of (initial_observation, info_dict)
+        """
         if seed is not None:
             np.random.seed(seed)
 
         # Reset episode manager
         self.episode_manager.reset_episode()
 
-        # Clear cache on reset
-        self._cached_legal_moves = None
-        self._cache_player = None
-        self._cache_state_hash = None
-        self._cache_turn_counter = 0
+        # Reset game state tracker cache
+        self.game_state_tracker.reset_cache()
 
         # Reset observation tracking
         self.obs_vectorizer.reset()
@@ -92,6 +113,16 @@ class BigTwoRLWrapper(gym.Env):
         return self.current_obs, {}
 
     def step(self, action: int) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
+        """Execute one step of the RL environment.
+        
+        Handles opponent autoplay, game transitions, and episode management.
+        
+        Args:
+            action: Action index for the controlled player
+            
+        Returns:
+            Tuple of (observation, reward, terminated, truncated, info)
+        """
         info = {}
         reward_to_return = 0.0
         done = False
@@ -102,7 +133,7 @@ class BigTwoRLWrapper(gym.Env):
             raw_obs_local, _rewards, game_done_local, info_local = self.env.step(
                 move_index
             )
-            self._cache_turn_counter += 1
+            self.game_state_tracker.increment_turn_counter()
             return raw_obs_local, game_done_local, info_local
 
         # If we have opponents configured, autoplay them until it's our turn
@@ -112,7 +143,7 @@ class BigTwoRLWrapper(gym.Env):
             while (self.env.current_player != self.controlled_player) and (not done):
                 # Opponent acts
                 opp_player = self.env.current_player
-                legal_moves_opp = self._get_legal_moves_cached(opp_player)
+                legal_moves_opp = self.game_state_tracker.get_legal_moves_cached(self.env, opp_player)
                 move_idx = self._select_opponent_action(opp_player)
                 # Track opponent move for observation memory features
                 try:
@@ -139,12 +170,9 @@ class BigTwoRLWrapper(gym.Env):
 
         # Now it should be the controlled player's turn (or no opponents configured)
         # Convert action index to actual move for current player
-        legal_moves = self._get_legal_moves_cached(self.env.current_player)
-        if len(legal_moves) == 0:
-            move_idx = 0
-        else:
-            # Map oversized actions into current legal move range to avoid systematic passes
-            move_idx = int(action) % len(legal_moves)
+        legal_moves = self.game_state_tracker.get_legal_moves_cached(self.env, self.env.current_player)
+        # Validate and clamp action to legal range
+        move_idx = self.game_state_tracker.validate_and_clamp_action(action, legal_moves)
 
         # Track controlled player's move for observation memory features and metrics
         try:
@@ -181,7 +209,7 @@ class BigTwoRLWrapper(gym.Env):
         if self.opponent_controller.has_opponents():
             while self.env.current_player != self.controlled_player:
                 opp_player = self.env.current_player
-                legal_moves_opp = self._get_legal_moves_cached(opp_player)
+                legal_moves_opp = self.game_state_tracker.get_legal_moves_cached(self.env, opp_player)
                 move_idx = self._select_opponent_action(opp_player)
                 # Track opponent move for observation memory features
                 try:
@@ -208,64 +236,16 @@ class BigTwoRLWrapper(gym.Env):
         """Convert dict observation to configured feature vector."""
         return self.obs_vectorizer.vectorize(raw_obs, self.env)
 
-    def _get_simple_state_hash(self) -> Tuple[int, Tuple[int, ...], int, int]:
-        """Create a lightweight hash of game state for cache invalidation."""
-        # Use turn counter and hand sizes instead of expensive tuple creation
-        hand_sizes = tuple(np.sum(self.env.hands, axis=1))
-        last_play_len = np.sum(self.env.last_play[0]) if self.env.last_play else 0
-        return (
-            self.env.current_player,
-            hand_sizes,
-            last_play_len,
-            self._cache_turn_counter,
-        )
-
-    def _get_legal_moves_cached(self, player: int) -> List[np.ndarray]:
-        """Get legal moves with optimized caching to avoid duplicate computation."""
-        current_state = self._get_simple_state_hash()
-
-        # Check if cache is valid
-        if (
-            self._cache_player == player
-            and self._cache_state_hash == current_state
-            and self._cached_legal_moves is not None
-        ):
-            return self._cached_legal_moves
-
-        # Cache miss - compute and store
-        self._cached_legal_moves = self.env.legal_moves(player)
-        self._cache_player = player
-        self._cache_state_hash = current_state
-
-        return self._cached_legal_moves
 
     def get_action_mask(self) -> np.ndarray:
         """Return boolean mask for legal actions."""
-        legal_moves = self._get_legal_moves_cached(self.env.current_player)
-        mask = np.zeros(2000, dtype=bool)
-
-        for i, move in enumerate(legal_moves):
-            if i < 2000:  # Safety check
-                mask[i] = True
-
-        return mask
+        return self.game_state_tracker.get_action_mask(self.env, self.env.current_player)
 
     # For sb3-contrib MaskablePPO compatibility
     def action_masks(self) -> np.ndarray:
         """Alias used by ActionMasker wrapper to fetch the current legal action mask."""
         return self.get_action_mask()
 
-    def _find_pass_move_idx(self, legal_moves: List[np.ndarray]) -> Optional[int]:
-        """Find index of pass move (all-False array or empty list) in legal_moves list."""
-        for i, move in enumerate(legal_moves):
-            # Check for numpy array pass move (all False)
-            if isinstance(move, np.ndarray):
-                if not np.any(move):
-                    return i
-            # Check for list pass move (empty list)
-            elif isinstance(move, list) and len(move) == 0:
-                return i
-        return None
 
     def _calculate_game_reward(self, player_idx: int) -> float:
         """Calculate immediate reward after game completion."""
@@ -296,7 +276,7 @@ class BigTwoRLWrapper(gym.Env):
     # --- New helpers for opponent autoplay and episode/game transitions ---
     def _select_opponent_action(self, player_idx: int) -> int:
         """Select an action index for a non-controlled opponent player."""
-        legal_moves = self._get_legal_moves_cached(player_idx)
+        legal_moves = self.game_state_tracker.get_legal_moves_cached(self.env, player_idx)
         # Build observation for that player
         raw_obs = self.env._get_obs()
         obs_vec = self._vectorize_obs(raw_obs)
@@ -305,7 +285,7 @@ class BigTwoRLWrapper(gym.Env):
             player_idx=player_idx,
             legal_moves=legal_moves,
             observation_vector=obs_vec,
-            find_pass_move_fn=self._find_pass_move_idx
+            find_pass_move_fn=self.game_state_tracker.find_pass_move_idx
         )
 
     def _handle_game_end_reward(self) -> float:
@@ -329,10 +309,7 @@ class BigTwoRLWrapper(gym.Env):
             # Episode bonus is handled by caller and the env will be reset on next external reset()
             return True, self.env._get_obs()
         # Clear caches for new game and reset core env
-        self._cached_legal_moves = None
-        self._cache_player = None
-        self._cache_state_hash = None
-        self._cache_turn_counter = 0
+        self.game_state_tracker.clear_cache_for_new_game()
         # Reset observation memory tracking per game
         try:
             self.obs_vectorizer.reset()
