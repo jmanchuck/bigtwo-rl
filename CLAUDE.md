@@ -10,22 +10,16 @@ Big Two RL Agent Library - A comprehensive reinforcement learning library for tr
 - **High-Performance Core**: Fully vectorized numpy implementation (5-20x speedup)
 - **Memory Optimized**: Boolean array representation (50-75% memory reduction)
 - **Library Architecture**: Proper Python package with clear module organization
-- **Extensible Training**: Configurable hyperparameters and custom reward functions 
+- **Extensible Training**: 8 reward functions + 4 hyperparameter configurations
 - **Agent System**: Modular agent implementations (Random, Greedy, PPO)
-- **Tournament Framework**: 4-player series and tournaments with statistics
-- **Easy Integration**: Simple API for common workflows
+- **Tournament Framework**: 4-player series and tournaments with multiprocessing
+- **Configurable Observations**: 15+ observation features for experimentation
 
 ## Development Commands
 
 ```bash
 # Environment setup
 uv sync                                    # Install dependencies from requirements.txt
-
-# Library Usage (Primary Methods)
-uv run python examples/train_agent.py               # Train agent with simple API
-uv run python examples/evaluate_agent.py MODEL     # Evaluate trained model (4-player series)
-uv run python examples/tournament_example.py       # Run 4-player tournament between agents
-uv run python examples/custom_reward_example.py    # Train with custom reward function
 
 # Testing and validation
 uv run python tests/test_wrapper.py        # Test environment wrapper functionality
@@ -35,8 +29,9 @@ uv run python tests/test_training.py       # Test training setup
 uv run python tests/test_numpy_performance.py  # Performance benchmarks
 uv run python tests/test_optimization_impact.py  # Optimization validation
 
-# Interactive play
+# Interactive play (existing examples)
 uv run python examples/play_vs_agent.py MODEL      # Play against trained agent
+uv run python examples/benchmark_multiprocessing.py # Test multiprocessing performance
 
 # Monitoring
 uv run python -m tensorboard.main --logdir=./logs  # View training metrics (http://localhost:6006)
@@ -67,12 +62,9 @@ bigtwo_rl/                           # Main library package
 │   └── tournament.py               # 4-player tournament system for agent competitions
 └── utils/                           # Utilities and helpers
 
-examples/                            # Clear usage examples
-├── train_agent.py                  # Simple training example
-├── evaluate_agent.py               # Model evaluation example
-├── tournament_example.py           # Tournament setup example
-├── custom_reward_example.py        # Custom reward function example
-└── play_vs_agent.py                # Interactive play vs agent
+examples/                            # Example scripts
+├── play_vs_agent.py                # Interactive play vs agent
+└── benchmark_multiprocessing.py    # Multiprocessing performance test
 
 tests/                               # Comprehensive test suite
 models/                              # Saved model checkpoints
@@ -82,10 +74,18 @@ logs/                                # Tensorboard training logs
 ### Core Components
 
 **Training System (`bigtwo_rl.training`)**:
-- `Trainer`: High-level training class with configurable rewards/hyperparams
-- `BaseReward`: Abstract class for custom reward functions
-- Built-in reward functions: default, sparse, aggressive_penalty, progressive, ranking
-- Hyperparameter configurations: default, aggressive, conservative, fast_experimental
+- `Trainer`: High-level training class with configurable rewards/hyperparams/observations
+- `BaseReward`: Abstract class for custom reward functions with move bonuses
+- **8 Built-in Reward Functions**:
+  - `DefaultReward`: Balanced win/loss with card-based penalties
+  - `SparseReward`: Simple win/loss only  
+  - `AggressivePenaltyReward`: Higher penalties for many cards
+  - `ProgressiveReward`: Rewards progress (fewer cards)
+  - `RankingReward`: Rewards based on final ranking
+  - `ScoreMarginReward`: Continuous reward based on card advantage
+  - `StrategicReward`: Advanced strategic play encouragement
+  - `ComplexMoveReward`: Bonuses for complex card combinations
+- **4 Hyperparameter Configurations**: `DefaultConfig`, `AggressiveConfig`, `ConservativeConfig`, `FastExperimentalConfig`
 
 **Agent System (`bigtwo_rl.agents`)**:
 - `BaseAgent`: Common interface for all agent types
@@ -101,9 +101,14 @@ logs/                                # Tensorboard training logs
 **Game Environment (`bigtwo_rl.core`)**:
 - `ToyBigTwoFullRules`: Complete Big Two game implementation with numpy vectorization
 - `BigTwoRLWrapper`: Gymnasium-compatible RL environment with optimized observations
-- 109-feature observation space with direct numpy array operations
+- **Configurable Observation Space**: 15+ features, from minimal (57) to strategic (300+ features)
 - Dynamic action space with proper action masking
 - **Performance**: Vectorized legal move generation, hand type identification with LRU cache
+
+**Observation System (`bigtwo_rl.core.observation_builder`)**:
+- `ObservationConfig`: Configure exactly what the agent observes (15+ feature types)
+- Pre-built configs: `minimal_observation` (57), `standard_observation` (109), `memory_enhanced_observation` (217), `strategic_observation` (300+)
+- Custom configs: Hand types, opponent modeling, strategic features, memory features
 
 ## Usage Examples
 
@@ -112,11 +117,13 @@ logs/                                # Tensorboard training logs
 from bigtwo_rl.training import Trainer
 from bigtwo_rl.training.rewards import DefaultReward
 from bigtwo_rl.training.hyperparams import DefaultConfig
+from bigtwo_rl import standard_observation
 
-# Explicit class-based training configuration
+# Training with all required components
 trainer = Trainer(
     reward_function=DefaultReward(),
-    hyperparams=DefaultConfig()
+    hyperparams=DefaultConfig(),
+    observation_config=standard_observation()  # Required
 )
 model, model_dir = trainer.train(total_timesteps=25000)
 ```
@@ -126,6 +133,7 @@ model, model_dir = trainer.train(total_timesteps=25000)
 from bigtwo_rl.training import Trainer
 from bigtwo_rl.training.rewards import BaseReward
 from bigtwo_rl.training.hyperparams import AggressiveConfig
+from bigtwo_rl import minimal_observation
 
 class MyReward(BaseReward):
     def game_reward(self, winner_player, player_idx, cards_left, all_cards_left=None):
@@ -138,7 +146,8 @@ class MyReward(BaseReward):
 
 trainer = Trainer(
     reward_function=MyReward(), 
-    hyperparams=AggressiveConfig()
+    hyperparams=AggressiveConfig(),
+    observation_config=minimal_observation()  # Use minimal for faster training
 )
 model, model_dir = trainer.train(total_timesteps=15000)
 ```
@@ -169,26 +178,70 @@ results = evaluator.evaluate_model("./models/my_model/best_model")
 # Access results: win_rates, avg_cards_left, total wins, game history
 ```
 
+### Advanced Training with Custom Observations
+```python
+from bigtwo_rl.training import Trainer
+from bigtwo_rl.training.rewards import StrategicReward, ComplexMoveReward
+from bigtwo_rl.training.hyperparams import ConservativeConfig
+from bigtwo_rl.core.observation_builder import ObservationConfig
+
+# Custom observation for strategic play
+strategic_obs = ObservationConfig(
+    include_hand=True,
+    include_last_play=True,
+    include_hand_sizes=True,
+    include_played_cards=True,        # Memory of all played cards
+    include_pass_history=True,        # Who passed on current trick
+    include_power_cards_remaining=True # Track high-value cards (2s, Aces)
+)
+
+# Train agent to play complex hands with strategic awareness
+trainer = Trainer(
+    reward_function=ComplexMoveReward(five_card_bonus=0.2),  # Bonus for 5-card hands
+    hyperparams=ConservativeConfig(),     # Stable training
+    observation_config=strategic_obs      # Rich observations
+)
+model, model_dir = trainer.train(total_timesteps=50000)
+```
+
+### Available Reward Functions
+```python
+from bigtwo_rl.training.rewards import *
+
+# Simple rewards
+DefaultReward()           # Balanced win/loss with card penalties
+SparseReward()           # Simple win/loss only
+
+# Strategic rewards  
+StrategicReward()        # Encourages sophisticated play patterns
+ProgressiveReward()      # Rewards progress (fewer cards)
+RankingReward()          # Rewards based on final ranking
+
+# Advanced rewards
+ScoreMarginReward()      # Continuous reward based on card advantage
+ComplexMoveReward(five_card_bonus=0.1)  # Bonuses for complex combinations
+AggressivePenaltyReward()  # Higher penalties for poor performance
+```
+
 ## Key RL Concepts
 
-**Observation Space (109 features)**:
-```python
-[hand_binary(52), last_play_binary(52), hand_sizes(4), last_play_exists(1)]
-```
+**Configurable Observation Space**:
+- **Minimal** (57 features): `[hand(52), hand_sizes(4), last_play_exists(1)]`
+- **Standard** (109 features): `[hand(52), last_play(52), hand_sizes(4), last_play_exists(1)]`  
+- **Memory Enhanced** (217 features): Adds played cards history and remaining deck
+- **Strategic** (300+ features): Adds opponent modeling, power cards, trick history, play patterns
 
 **Action Space**: Dynamic based on legal moves
 - Singles, pairs, trips, 5-card hands (straights, flushes, etc.)
 - Pass action available when not starting a trick
+- Proper action masking prevents invalid moves
 
-**Multi-Game Episodes**: Each training episode consists of multiple games (configurable) with reward only at episode end to address card dealing randomness.
+**Multi-Game Episodes**: Each training episode consists of multiple games (configurable) with rewards given after each game plus episode bonus to address card dealing randomness.
 
-**Reward Functions**:
-- `DefaultReward`: Balanced win/loss rewards with card-based penalties
-- `SparseReward`: Simple win (+1) vs loss (-1) 
-- `AggressivePenaltyReward`: Higher penalties for losing with many cards
-- `ProgressiveReward`: Rewards progress (fewer cards = better reward)
-- `RankingReward`: Rewards based on final ranking among all players
-- `ScoreMarginReward`: Continuous reward based on card advantage vs opponents
+**Reward Structure**:
+- **Game Rewards**: Immediate feedback after each game (win/loss + card penalties)
+- **Episode Bonus**: Additional reward based on overall episode performance  
+- **Move Bonuses**: Optional rewards for specific move types (5-card hands, pairs)
 
 ## Hyperparameters Explained (Big Two Context)
 
@@ -327,13 +380,29 @@ The library has been fully optimized with numpy vectorization for maximum perfor
 
 ## Development Workflow
 
-### Library Installation
-```bash
-# Development install
-pip install -e .
+### Quick Start Training Pattern
+```python
+# 1. Choose components
+from bigtwo_rl.training import Trainer
+from bigtwo_rl.training.rewards import DefaultReward  # or any of the 8 reward functions
+from bigtwo_rl.training.hyperparams import DefaultConfig  # or any of the 4 configs
+from bigtwo_rl import standard_observation  # or minimal/memory_enhanced/strategic
 
-# Use in other projects
-pip install bigtwo-rl
+# 2. Configure trainer  
+trainer = Trainer(
+    reward_function=DefaultReward(),
+    hyperparams=DefaultConfig(), 
+    observation_config=standard_observation()
+)
+
+# 3. Train model
+model, model_dir = trainer.train(total_timesteps=25000)
+
+# 4. Evaluate model (automatically loads the best model)
+from bigtwo_rl.evaluation import Evaluator
+evaluator = Evaluator(num_games=100)
+results = evaluator.evaluate_model(f"{model_dir}/best_model")
+print(f"Win rate: {results['win_rate']:.2%}")
 ```
 
 ### Adding Custom Agents
@@ -355,9 +424,17 @@ class MyAgent(BaseAgent):
 from bigtwo_rl.training.rewards import BaseReward
 
 class MyReward(BaseReward):
-    def calculate(self, winner_player, player_idx, cards_left, all_cards_left=None):
+    def game_reward(self, winner_player, player_idx, cards_left, all_cards_left=None):
         # Your reward logic here
         return reward_value
+        
+    def episode_bonus(self, games_won, total_games, avg_cards_left):
+        # Episode-level bonus
+        return bonus_value
+        
+    def move_bonus(self, move_cards):
+        # Optional: bonus for specific moves  
+        return move_bonus_value
 ```
 
 ## Training Results
