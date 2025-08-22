@@ -3,48 +3,57 @@
 
 import sys
 import os
-from bigtwo_rl.agents import HumanAgent, PPOAgent
+from bigtwo_rl.agents import HumanAgent, PPOAgent, GreedyAgent
 from bigtwo_rl.evaluation import Tournament
 
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python examples/play_vs_agent.py <MODEL_PATH>")
+        print("Usage: python examples/play_vs_agent.py <MODEL_PATH_OR_GREEDY>")
         print("  MODEL_PATH: Path to trained model directory or .zip file")
-        print(
-            "  Example: python examples/play_vs_agent.py ./models/my_model/best_model.zip"
-        )
+        print("  greedy: Play against 3 greedy agents instead of AI models")
+        print("Examples:")
+        print("  python examples/play_vs_agent.py ./models/my_model/best_model.zip")
+        print("  python examples/play_vs_agent.py greedy")
         sys.exit(1)
 
-    model_path = sys.argv[1]
+    opponent_type = sys.argv[1]
 
-    # Validate model path
-    if os.path.isdir(model_path):
-        # Look for model files in directory
-        candidates = [
-            os.path.join(model_path, "best_model.zip"),
-            os.path.join(model_path, "final_model.zip"),
-        ]
-        actual_model_path = None
-        for candidate in candidates:
-            if os.path.isfile(candidate):
-                actual_model_path = candidate
-                break
+    # Check if user wants to play against greedy agents
+    if opponent_type.lower() == "greedy":
+        use_greedy = True
+        model_path = None
+    else:
+        use_greedy = False
+        model_path = opponent_type
+        
+        # Validate model path
+        if os.path.isdir(model_path):
+            # Look for model files in directory
+            candidates = [
+                os.path.join(model_path, "best_model.zip"),
+                os.path.join(model_path, "final_model.zip"),
+            ]
+            actual_model_path = None
+            for candidate in candidates:
+                if os.path.isfile(candidate):
+                    actual_model_path = candidate
+                    break
 
-        if actual_model_path is None:
-            # Try any .zip file in directory
-            zip_files = [f for f in os.listdir(model_path) if f.endswith(".zip")]
-            if zip_files:
-                actual_model_path = os.path.join(model_path, sorted(zip_files)[0])
+            if actual_model_path is None:
+                # Try any .zip file in directory
+                zip_files = [f for f in os.listdir(model_path) if f.endswith(".zip")]
+                if zip_files:
+                    actual_model_path = os.path.join(model_path, sorted(zip_files)[0])
 
-        if actual_model_path is None:
-            print(f"❌ No model file found in directory: {model_path}")
-            print("Expected 'best_model.zip' or 'final_model.zip'")
+            if actual_model_path is None:
+                print(f"❌ No model file found in directory: {model_path}")
+                print("Expected 'best_model.zip' or 'final_model.zip'")
+                sys.exit(1)
+            model_path = actual_model_path
+        elif not os.path.isfile(model_path):
+            print(f"❌ Model file not found: {model_path}")
             sys.exit(1)
-        model_path = actual_model_path
-    elif not os.path.isfile(model_path):
-        print(f"❌ Model file not found: {model_path}")
-        sys.exit(1)
 
     print("🃏 BIG TWO: Human vs AI Agents")
     print("=" * 50)
@@ -62,16 +71,25 @@ def main():
     try:
         # Create agents
         human = HumanAgent("Human")
-        ai1 = PPOAgent(model_path, "AI-Agent-1")
-        ai2 = PPOAgent(model_path, "AI-Agent-2")
-        ai3 = PPOAgent(model_path, "AI-Agent-3")
-
-        print(f"✅ Loaded AI model from: {model_path}")
+        
+        if use_greedy:
+            agent1 = GreedyAgent("Greedy-1")
+            agent2 = GreedyAgent("Greedy-2") 
+            agent3 = GreedyAgent("Greedy-3")
+            print("✅ Playing against 3 Greedy agents")
+            opponent_type_display = "Greedy"
+        else:
+            agent1 = PPOAgent(model_path, "AI-Agent-1")
+            agent2 = PPOAgent(model_path, "AI-Agent-2")
+            agent3 = PPOAgent(model_path, "AI-Agent-3")
+            print(f"✅ Loaded AI model from: {model_path}")
+            opponent_type_display = "AI"
+        
         print("🎯 Starting game with you as Player 0...")
         print()
 
         # Create tournament (single game)
-        tournament = Tournament([human, ai1, ai2, ai3])
+        tournament = Tournament([human, agent1, agent2, agent3])
 
         # Run the game
         results = tournament.run(num_games=1)
@@ -85,8 +103,8 @@ def main():
         matchup = results["matchup_results"][0]
 
         # Create player position mapping
-        agent_names = [human.name, ai1.name, ai2.name, ai3.name]
-        player_labels = ["Human", "Agent 1", "Agent 2", "Agent 3"]
+        agent_names = [human.name, agent1.name, agent2.name, agent3.name]
+        player_labels = ["Human", f"{opponent_type_display} 1", f"{opponent_type_display} 2", f"{opponent_type_display} 3"]
 
         # Find winner and display
         winner_found = False

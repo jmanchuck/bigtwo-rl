@@ -236,8 +236,11 @@ class MyCustomAgent(BaseAgent):
 ### 🎮 Interactive Play
 
 ```bash
-# Play against a trained agent
+# Play against 3 trained agents
 uv run python examples/play_vs_agent.py ./models/my_model/best_model
+
+# Play against 3 Greedy agents
+uv run python examples/play_vs_agent.py greedy
 ```
 
 ### 📈 Training Monitoring
