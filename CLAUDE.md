@@ -31,7 +31,6 @@ uv run python tests/test_optimization_impact.py  # Optimization validation
 
 # Interactive play (existing examples)
 uv run python examples/play_vs_agent.py MODEL      # Play against trained agent
-uv run python examples/benchmark_multiprocessing.py # Test multiprocessing performance
 
 # Monitoring
 uv run python -m tensorboard.main --logdir=./logs  # View training metrics (http://localhost:6006)
@@ -64,7 +63,6 @@ bigtwo_rl/                           # Main library package
 
 examples/                            # Example scripts
 ├── play_vs_agent.py                # Interactive play vs agent
-└── benchmark_multiprocessing.py    # Multiprocessing performance test
 
 tests/                               # Comprehensive test suite
 models/                              # Saved model checkpoints
@@ -300,7 +298,7 @@ Understanding hyperparameters in terms of actual Big Two gameplay:
   - games_per_episode = 3  # Smaller episodes, more frequent rewards
   - n_steps = 180         # ~6 games before update  
 
-## Multiprocessing Support (New: 2025-08-19)
+## Multiprocessing Support
 
 ### Parallel Tournament Execution
 The library now supports multiprocessing for significant tournament speedup:

@@ -366,9 +366,7 @@ uv run python tests/test_wrapper.py
 uv run python tests/test_training.py
 
 # Example workflows  
-uv run python examples/strategic_training_example.py
 uv run python examples/play_vs_agent.py MODEL
-uv run python examples/benchmark_multiprocessing.py
 
 # Monitor training
 uv run python -m tensorboard.main --logdir=./logs
@@ -384,9 +382,7 @@ uv run python -m tensorboard.main --logdir=./logs
 ## 📚 Examples & Tutorials
 
 See `/examples/` directory for complete working examples:
-- `strategic_training_example.py` - Advanced training configuration
 - `play_vs_agent.py` - Interactive play against trained agents
-- `benchmark_multiprocessing.py` - Performance testing
 
 ---
 
