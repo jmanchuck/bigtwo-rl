@@ -26,7 +26,7 @@ def main():
     else:
         use_greedy = False
         model_path = opponent_type
-        
+
         # Validate model path
         if os.path.isdir(model_path):
             # Look for model files in directory
@@ -71,10 +71,10 @@ def main():
     try:
         # Create agents
         human = HumanAgent("Human")
-        
+
         if use_greedy:
             agent1 = GreedyAgent("Greedy-1")
-            agent2 = GreedyAgent("Greedy-2") 
+            agent2 = GreedyAgent("Greedy-2")
             agent3 = GreedyAgent("Greedy-3")
             print("✅ Playing against 3 Greedy agents")
             opponent_type_display = "Greedy"
@@ -84,7 +84,7 @@ def main():
             agent3 = PPOAgent(model_path, "AI-Agent-3")
             print(f"✅ Loaded AI model from: {model_path}")
             opponent_type_display = "AI"
-        
+
         print("🎯 Starting game with you as Player 0...")
         print()
 
@@ -104,7 +104,12 @@ def main():
 
         # Create player position mapping
         agent_names = [human.name, agent1.name, agent2.name, agent3.name]
-        player_labels = ["Human", f"{opponent_type_display} 1", f"{opponent_type_display} 2", f"{opponent_type_display} 3"]
+        player_labels = [
+            "Human",
+            f"{opponent_type_display} 1",
+            f"{opponent_type_display} 2",
+            f"{opponent_type_display} 3",
+        ]
 
         # Find winner and display
         winner_found = False

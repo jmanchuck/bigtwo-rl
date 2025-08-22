@@ -140,9 +140,14 @@ class ToyBigTwoFullRules:
     ) -> Tuple[str, int]:
         """Identify the type of hand and return (hand_type, strength_value)."""
         # Use LRU cache for frequently computed hand types
-        # Normalize input to list of indices if numpy mask was provided
+        # Normalize input to list of indices
         if isinstance(cards, np.ndarray):
-            cards = np.where(cards)[0].tolist()
+            if cards.dtype == bool or len(cards) == 52:
+                # Boolean mask - extract indices where True
+                cards = np.where(cards)[0].tolist()
+            else:
+                # Array of card indices - convert to list
+                cards = cards.tolist()
         cards_tuple = tuple(sorted(cards))
         return self._identify_hand_type_cached(cards_tuple)
 
