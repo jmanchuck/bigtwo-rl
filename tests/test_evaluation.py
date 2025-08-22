@@ -61,7 +61,9 @@ def test_card_counting_with_numpy():
     from bigtwo_rl.core.observation_builder import standard_observation
     import numpy as np
 
-    env = BigTwoRLWrapper(observation_config=standard_observation(), num_players=4, games_per_episode=1)
+    env = BigTwoRLWrapper(
+        observation_config=standard_observation(), num_players=4, games_per_episode=1
+    )
     env.reset()
 
     # Verify total cards is correct

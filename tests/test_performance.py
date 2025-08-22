@@ -11,7 +11,9 @@ def test_caching_performance():
     """Test the performance improvement from legal moves caching."""
     print("Testing legal moves caching performance...")
 
-    env = BigTwoRLWrapper(observation_config=standard_observation(), num_players=4, games_per_episode=1)
+    env = BigTwoRLWrapper(
+        observation_config=standard_observation(), num_players=4, games_per_episode=1
+    )
     env.reset()
 
     # Simulate typical training pattern: step() followed by get_action_mask()
@@ -34,7 +36,7 @@ def test_caching_performance():
     elapsed = end_time - start_time
 
     print(f"✓ Completed {num_iterations} iterations in {elapsed:.3f}s")
-    print(f"✓ Average time per step: {elapsed/num_iterations*1000:.2f}ms")
+    print(f"✓ Average time per step: {elapsed / num_iterations * 1000:.2f}ms")
 
     # Test completed successfully
 

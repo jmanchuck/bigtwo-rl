@@ -17,9 +17,9 @@ def test_observation_space():
 
     # Check observation keys
     expected_keys = {"hand", "last_play", "last_play_exists", "legal_moves"}
-    assert (
-        set(obs.keys()) == expected_keys
-    ), f"Missing keys: {expected_keys - set(obs.keys())}"
+    assert set(obs.keys()) == expected_keys, (
+        f"Missing keys: {expected_keys - set(obs.keys())}"
+    )
 
     # Check dimensions
     assert obs["hand"].shape == (52,), f"Hand shape: {obs['hand'].shape}"
@@ -52,7 +52,9 @@ def test_rl_wrapper():
     """Test the RL wrapper with new observation space."""
     print("\nTesting RL wrapper...")
 
-    wrapper = BigTwoRLWrapper(observation_config=standard_observation(), num_players=4, games_per_episode=1)
+    wrapper = BigTwoRLWrapper(
+        observation_config=standard_observation(), num_players=4, games_per_episode=1
+    )
     obs, info = wrapper.reset()
 
     # Check observation shape

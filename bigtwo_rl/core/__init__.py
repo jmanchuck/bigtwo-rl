@@ -7,4 +7,10 @@ from .opponent_controller import OpponentController
 from .game_state_tracker import GameStateTracker
 from .card_utils import *
 
-__all__ = ["ToyBigTwoFullRules", "BigTwoRLWrapper", "EpisodeManager", "OpponentController", "GameStateTracker"]
+__all__ = [
+    "ToyBigTwoFullRules",
+    "BigTwoRLWrapper",
+    "EpisodeManager",
+    "OpponentController",
+    "GameStateTracker",
+]

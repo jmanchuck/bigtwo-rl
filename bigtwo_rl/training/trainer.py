@@ -137,7 +137,9 @@ class Trainer:
         callbacks = self._setup_callbacks(eval_env, models_dir)
 
         # Training execution
-        self._execute_training_loop(model, total_timesteps, callbacks, models_dir, verbose)
+        self._execute_training_loop(
+            model, total_timesteps, callbacks, models_dir, verbose
+        )
 
         # Post-training save
         self._save_model_and_metadata(model, models_dir, total_timesteps, verbose)
@@ -146,7 +148,9 @@ class Trainer:
 
     def _print_training_info(self, model_name: str) -> None:
         """Print training configuration information."""
-        print(f"Training with config '{self.config_name}' and reward function '{self.reward_name}'")
+        print(
+            f"Training with config '{self.config_name}' and reward function '{self.reward_name}'"
+        )
         print(f"Config: {self.config}")
 
     def _setup_opponent_provider(self) -> None:
@@ -164,10 +168,10 @@ class Trainer:
         """Create training and evaluation environments."""
         # Create training environment with true multiprocessing
         env = SubprocVecEnv([self._make_env for _ in range(self.config["n_envs"])])
-        
+
         # Create evaluation environment (match vectorized type with training to avoid warnings)
         eval_env = SubprocVecEnv([self._make_env])
-        
+
         return env, eval_env
 
     def _create_model_instance(self, env, model_name: str, verbose: bool):
@@ -191,6 +195,7 @@ class Trainer:
 
         if use_maskable:
             from sb3_contrib.ppo_mask import MaskablePPO  # type: ignore
+
             return MaskablePPO(**model_kwargs)
         else:
             return PPO(**model_kwargs)
@@ -199,6 +204,7 @@ class Trainer:
         """Check if MaskablePPO is available."""
         try:
             from sb3_contrib.ppo_mask import MaskablePPO  # type: ignore
+
             return True
         except Exception:
             return False
@@ -216,20 +222,21 @@ class Trainer:
         )
 
         callbacks = [eval_callback]
-        
+
         # Add Big Two metrics callback if enabled
         if self.enable_bigtwo_metrics:
             callbacks.append(BigTwoMetricsCallback(verbose=0))
-        
+
         # Add snapshot callback if configured
         if self.snapshot_every_steps is not None and self.snapshot_every_steps > 0:
             snapshot_cb = self._create_snapshot_callback(models_dir)
             callbacks.append(snapshot_cb)
-        
+
         return callbacks
 
     def _create_snapshot_callback(self, models_dir: str):
         """Create snapshot callback for periodic model saving."""
+
         class SnapshotCallback(BaseCallback):
             def __init__(self, save_dir: str, freq: int, verbose: int = 0):
                 super().__init__(verbose)
@@ -245,11 +252,16 @@ class Trainer:
                 return True
 
         snapshot_dir = self.snapshot_dir or models_dir
-        return SnapshotCallback(
-            save_dir=snapshot_dir, freq=self.snapshot_every_steps
-        )
+        return SnapshotCallback(save_dir=snapshot_dir, freq=self.snapshot_every_steps)
 
-    def _execute_training_loop(self, model, total_timesteps: int, callbacks: list, models_dir: str, verbose: bool) -> None:
+    def _execute_training_loop(
+        self,
+        model,
+        total_timesteps: int,
+        callbacks: list,
+        models_dir: str,
+        verbose: bool,
+    ) -> None:
         """Execute the main training loop."""
         if verbose:
             print(f"Starting PPO training for {total_timesteps} timesteps...")
@@ -259,7 +271,9 @@ class Trainer:
             total_timesteps=total_timesteps, callback=callbacks, progress_bar=False
         )
 
-    def _save_model_and_metadata(self, model, models_dir: str, total_timesteps: int, verbose: bool) -> None:
+    def _save_model_and_metadata(
+        self, model, models_dir: str, total_timesteps: int, verbose: bool
+    ) -> None:
         """Save final model and metadata."""
         # Save final model
         model.save(f"{models_dir}/final_model")

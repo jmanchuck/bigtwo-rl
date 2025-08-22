@@ -8,6 +8,6 @@ from .callbacks import BigTwoMetricsCallback
 __all__ = [
     "Trainer",
     "BaseReward",
-    "OpponentPool", 
+    "OpponentPool",
     "BigTwoMetricsCallback",
 ]

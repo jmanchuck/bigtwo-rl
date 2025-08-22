@@ -11,7 +11,7 @@ if __name__ == "__main__":
     trainer = Trainer(
         reward_function=DefaultReward(),
         hyperparams=DefaultConfig(),
-        observation_config=standard_observation()
+        observation_config=standard_observation(),
     )
     model, model_dir = trainer.train(total_timesteps=1000)
     print("✓ Training pipeline works!")

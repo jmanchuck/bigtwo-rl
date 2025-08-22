@@ -30,7 +30,9 @@ class BaseReward(ABC):
         pass
 
     @abstractmethod
-    def episode_bonus(self, games_won: int, total_games: int, avg_cards_left: float) -> float:
+    def episode_bonus(
+        self, games_won: int, total_games: int, avg_cards_left: float
+    ) -> float:
         """
         Calculate bonus reward at episode end based on overall performance.
 
@@ -47,10 +49,10 @@ class BaseReward(ABC):
     def move_bonus(self, move_cards: List[int]) -> float:
         """
         Calculate bonus reward for individual moves based on complexity.
-        
+
         Args:
             move_cards: List of card indices that were played
-            
+
         Returns:
             float: Move bonus reward (0.0 for most reward functions)
         """
@@ -83,7 +85,9 @@ class DefaultReward(BaseReward):
             else:
                 return 0
 
-    def episode_bonus(self, games_won: int, total_games: int, avg_cards_left: float) -> float:
+    def episode_bonus(
+        self, games_won: int, total_games: int, avg_cards_left: float
+    ) -> float:
         """Small bonus for good episode performance."""
         win_rate = games_won / total_games if total_games > 0 else 0
         if win_rate > 0.6:
@@ -107,7 +111,9 @@ class SparseReward(BaseReward):
         else:
             return -0.25  # Loss (reduced from -1 for better learning)
 
-    def episode_bonus(self, games_won: int, total_games: int, avg_cards_left: float) -> float:
+    def episode_bonus(
+        self, games_won: int, total_games: int, avg_cards_left: float
+    ) -> float:
         """No episode bonus for sparse rewards."""
         return 0
 
@@ -134,7 +140,9 @@ class AggressivePenaltyReward(BaseReward):
             else:
                 return cards_left * -0.1
 
-    def episode_bonus(self, games_won: int, total_games: int, avg_cards_left: float) -> float:
+    def episode_bonus(
+        self, games_won: int, total_games: int, avg_cards_left: float
+    ) -> float:
         """Large bonus for avoiding penalties."""
         win_rate = games_won / total_games if total_games > 0 else 0
         if win_rate > 0.7:
@@ -165,7 +173,9 @@ class ProgressiveReward(BaseReward):
                 # Scale penalty from -0.2 (3 cards) to -1.0 (13 cards)
                 return -0.2 - ((cards_left - 3) * 0.08)  # Linear scaling
 
-    def episode_bonus(self, games_won: int, total_games: int, avg_cards_left: float) -> float:
+    def episode_bonus(
+        self, games_won: int, total_games: int, avg_cards_left: float
+    ) -> float:
         """Bonus for consistent progress."""
         if avg_cards_left < 2.0:  # Very good at minimizing cards
             return 1.0
@@ -189,7 +199,9 @@ class RankingReward(BaseReward):
         # Rank 0 = winner (handled above), 1 = 2nd place, etc.
         return 0.5 - rank * 0.2  # 2nd place gets 0.3, 3rd gets 0.1, last gets -0.1
 
-    def episode_bonus(self, games_won: int, total_games: int, avg_cards_left: float) -> float:
+    def episode_bonus(
+        self, games_won: int, total_games: int, avg_cards_left: float
+    ) -> float:
         """Bonus for consistent ranking performance."""
         win_rate = games_won / total_games if total_games > 0 else 0
         # Bonus based on both wins and low card count when losing
@@ -232,7 +244,9 @@ class ScoreMarginReward(BaseReward):
         # Combine base win/loss signal with margin, weighted to keep magnitude reasonable
         return float(0.5 * base + 0.5 * margin)
 
-    def episode_bonus(self, games_won: int, total_games: int, avg_cards_left: float) -> float:
+    def episode_bonus(
+        self, games_won: int, total_games: int, avg_cards_left: float
+    ) -> float:
         # Encourage consistent performance: normalized win-rate minus avg_cards_left factor
         win_rate = games_won / total_games if total_games > 0 else 0.0
         normalized_cards = 1.0 - min(avg_cards_left / 13.0, 1.0)
@@ -241,11 +255,11 @@ class ScoreMarginReward(BaseReward):
 
 class StrategicReward(BaseReward):
     """Advanced reward structure to encourage sophisticated Big Two strategies.
-    
+
     Encourages:
     - Strategic passing even when playable cards exist
     - Holding high-value cards (2s, Aces) for control
-    - Saving small cards for 5-card combinations  
+    - Saving small cards for 5-card combinations
     - Late-game positional advantage
     - Tempo control and timing
     """
@@ -258,7 +272,7 @@ class StrategicReward(BaseReward):
             efficiency_weight: Weight for card efficiency vs raw winning
         """
         self.control_bonus = control_bonus
-        self.position_bonus = position_bonus  
+        self.position_bonus = position_bonus
         self.efficiency_weight = efficiency_weight
 
     def game_reward(
@@ -276,40 +290,46 @@ class StrategicReward(BaseReward):
             if all_cards_left and max(all_cards_left) >= 8:
                 base_win += 0.5  # Bonus for dominant wins
             return base_win
-        
+
         if all_cards_left is None:
             # Fallback if ranking unavailable
             return max(-1.5, -0.15 * cards_left)
-        
+
         # Strategic loss evaluation
-        # 1. Position bonus: Reward good relative performance  
-        sorted_indices = sorted(range(len(all_cards_left)), key=lambda i: all_cards_left[i])
+        # 1. Position bonus: Reward good relative performance
+        sorted_indices = sorted(
+            range(len(all_cards_left)), key=lambda i: all_cards_left[i]
+        )
         player_rank = sorted_indices.index(player_idx)  # 0=best, 3=worst
         position_reward = self.position_bonus * (3 - player_rank) / 3  # 0.2 to 0 range
-        
+
         # 2. Control bonus: Reward finishing with few cards (strategic play)
         if cards_left <= 3:
             control_reward = self.control_bonus * (4 - cards_left) / 4  # Up to 0.3
         elif cards_left <= 6:
-            control_reward = self.control_bonus * 0.5  # Moderate bonus  
+            control_reward = self.control_bonus * 0.5  # Moderate bonus
         else:
             control_reward = 0
-            
+
         # 3. Efficiency penalty: Discourage being left with many cards
         efficiency_penalty = -self.efficiency_weight * min(cards_left / 13.0, 1.0)
-        
+
         # 4. Strategic play bonus: Extra reward for 2nd place with very few cards
         strategic_bonus = 0
         if player_rank == 1 and cards_left <= 2:  # 2nd place, very few cards
             strategic_bonus = 0.4  # Suggests good strategic control
-            
-        total_reward = position_reward + control_reward + efficiency_penalty + strategic_bonus
+
+        total_reward = (
+            position_reward + control_reward + efficiency_penalty + strategic_bonus
+        )
         return max(-2.0, total_reward)  # Cap minimum penalty
 
-    def episode_bonus(self, games_won: int, total_games: int, avg_cards_left: float) -> float:
+    def episode_bonus(
+        self, games_won: int, total_games: int, avg_cards_left: float
+    ) -> float:
         """Bonus for consistent strategic performance across episode."""
         win_rate = games_won / total_games if total_games > 0 else 0
-        
+
         # Strategic consistency bonus
         if win_rate >= 0.6 and avg_cards_left <= 4.0:
             return 1.0  # Excellent strategic play
@@ -319,18 +339,23 @@ class StrategicReward(BaseReward):
             return 0.4
         elif win_rate >= 0.5:  # Decent win rate
             return 0.2
-        
+
         return 0
 
 
 class ComplexMoveReward(BaseReward):
     """Reward function that encourages playing complex card combinations.
-    
+
     Provides a flat bonus for 5-card hands (straights, flushes, full houses, etc.)
     while maintaining standard win/loss reward structure.
     """
 
-    def __init__(self, five_card_bonus: float = 0.0, pair_bonus: float = 0.0, base_reward_scale: float = 1.0):
+    def __init__(
+        self,
+        five_card_bonus: float = 0.0,
+        pair_bonus: float = 0.0,
+        base_reward_scale: float = 1.0,
+    ):
         """
         Args:
             five_card_bonus: Bonus reward for each 5-card hand played (default: 0.1)
@@ -372,7 +397,9 @@ class ComplexMoveReward(BaseReward):
                 penalty = 0
             return self.base_reward_scale * penalty
 
-    def episode_bonus(self, games_won: int, total_games: int, avg_cards_left: float) -> float:
+    def episode_bonus(
+        self, games_won: int, total_games: int, avg_cards_left: float
+    ) -> float:
         """Small bonus for good episode performance (same as DefaultReward)."""
         win_rate = games_won / total_games if total_games > 0 else 0
         if win_rate > 0.6:

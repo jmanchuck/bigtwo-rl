@@ -11,7 +11,9 @@ def test_comprehensive_performance():
     """Test performance with all optimizations enabled."""
     print("Testing comprehensive performance with all optimizations...")
 
-    env = BigTwoRLWrapper(observation_config=standard_observation(), num_players=4, games_per_episode=1)
+    env = BigTwoRLWrapper(
+        observation_config=standard_observation(), num_players=4, games_per_episode=1
+    )
 
     # Test 1: Rapid-fire action selection (simulates training)
     print("\n=== Test 1: Rapid Action Selection ===")
@@ -36,8 +38,8 @@ def test_comprehensive_performance():
     elapsed = end_time - start_time
 
     print(f"✓ Completed {num_actions} actions in {elapsed:.3f}s")
-    print(f"✓ Average time per action: {elapsed/num_actions*1000:.3f}ms")
-    print(f"✓ Actions per second: {num_actions/elapsed:.0f}")
+    print(f"✓ Average time per action: {elapsed / num_actions * 1000:.3f}ms")
+    print(f"✓ Actions per second: {num_actions / elapsed:.0f}")
 
     # Test 2: Complex hand analysis (5-card heavy)
     print("\n=== Test 2: Complex Hand Analysis ===")
@@ -66,7 +68,9 @@ def test_comprehensive_performance():
     elapsed = end_time - start_time
 
     print(f"✓ Completed {complex_actions} complex actions in {elapsed:.3f}s")
-    print(f"✓ Average time per complex action: {elapsed/complex_actions*1000:.3f}ms")
+    print(
+        f"✓ Average time per complex action: {elapsed / complex_actions * 1000:.3f}ms"
+    )
 
     # Test 3: Cache efficiency
     print("\n=== Test 3: Cache Efficiency ===")
@@ -98,9 +102,9 @@ def test_comprehensive_performance():
 if __name__ == "__main__":
     total_time = test_comprehensive_performance()
 
-    print(f"\n{'='*50}")
+    print(f"\n{'=' * 50}")
     print("🚀 OPTIMIZATION SUMMARY")
-    print(f"{'='*50}")
+    print(f"{'=' * 50}")
     print("✅ Priority 1: Legal moves caching - MASSIVE speedup")
     print("✅ Priority 2: Early exit heuristics - 10-50x faster 5-card generation")
     print("✅ Priority 3: Precomputed lookups - 5-10x faster card operations")

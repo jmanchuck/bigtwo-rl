@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional, Tuple, Union, Generator, Set
 
 class ToyBigTwoFullRules:
     """Big Two game engine with complete rule implementation and vectorized operations."""
-    
+
     # Instance variable type hints
     num_players: int
     hands: np.ndarray  # shape (num_players, 52) boolean array
@@ -15,7 +15,7 @@ class ToyBigTwoFullRules:
     last_play: Optional[Tuple[np.ndarray, int]]  # (cards_mask, player_idx)
     passes_in_row: int
     done: bool
-    
+
     # Precomputed lookup tables for card properties (massive speedup)
     _RANK_TABLE = [card // 4 for card in range(52)]  # 0 = 3, 12 = 2
     _SUIT_TABLE = [
@@ -129,11 +129,15 @@ class ToyBigTwoFullRules:
         return self._VALUE_TABLE[card]
 
     @lru_cache(maxsize=50000)
-    def _identify_hand_type_cached(self, cards_tuple: Tuple[int, ...]) -> Tuple[str, int]:
+    def _identify_hand_type_cached(
+        self, cards_tuple: Tuple[int, ...]
+    ) -> Tuple[str, int]:
         """Cached hand type identification using LRU cache."""
         return self._identify_hand_type_uncached(list(cards_tuple))
 
-    def _identify_hand_type(self, cards: Union[List[int], np.ndarray]) -> Tuple[str, int]:
+    def _identify_hand_type(
+        self, cards: Union[List[int], np.ndarray]
+    ) -> Tuple[str, int]:
         """Identify the type of hand and return (hand_type, strength_value)."""
         # Use LRU cache for frequently computed hand types
         # Normalize input to list of indices if numpy mask was provided
@@ -303,7 +307,7 @@ class ToyBigTwoFullRules:
         """Get descriptive name for a move type."""
         move_indices = np.where(move_array)[0]
         move_len = len(move_indices)
-        
+
         if move_len == 0:
             return "Pass"
         elif move_len == 1:
@@ -326,7 +330,7 @@ class ToyBigTwoFullRules:
             is_pass = not np.any(play)
         else:
             is_pass = play == []
-        
+
         # Handle starting new trick vs pass move
         if self.last_play is None:
             # Starting new trick - pass is not allowed
@@ -334,13 +338,13 @@ class ToyBigTwoFullRules:
                 return False
             # Any valid hand can start a trick
             return True
-        
+
         # There is a last play - pass is allowed
         if is_pass:
             return True
-            
+
         last_play_cards = np.where(self.last_play[0])[0].tolist()
-        # Normalize play to list of indices  
+        # Normalize play to list of indices
         if isinstance(play, np.ndarray):
             play_indices = np.where(play)[0].tolist()
         else:
@@ -398,11 +402,13 @@ class ToyBigTwoFullRules:
                 last_play_array = move.astype(bool)
                 self.last_play = (last_play_array, player)
                 self.passes_in_row = 0
-                
+
                 # Add to move history (keep last 5 moves) - only if enabled
                 if self.track_move_history:
                     move_type = self._get_move_type(last_play_array)
-                    self.move_history.append((last_play_array.copy(), player, move_type))
+                    self.move_history.append(
+                        (last_play_array.copy(), player, move_type)
+                    )
                     if len(self.move_history) > 5:
                         self.move_history.pop(0)
             else:
@@ -412,7 +418,7 @@ class ToyBigTwoFullRules:
                     # trick reset
                     self.last_play = None
                     self.passes_in_row = 0
-                
+
                 # Add pass to move history - only if enabled
                 if self.track_move_history:
                     pass_array = np.zeros(52, dtype=bool)
@@ -459,7 +465,9 @@ class ToyBigTwoFullRules:
         self.current_player = (self.current_player + 1) % self.num_players
         return self._get_obs(), reward, self.done, {}
 
-    def _can_potentially_beat_5_card(self, hand: List[int], last_type: str, _last_strength: int) -> bool:
+    def _can_potentially_beat_5_card(
+        self, hand: List[int], last_type: str, _last_strength: int
+    ) -> bool:
         """Quick check if hand could potentially beat a 5-card play."""
         # Quick heuristics to avoid expensive computation
 
@@ -591,7 +599,9 @@ class ToyBigTwoFullRules:
 
         return moves
 
-    def _generate_flush_combinations(self, suit_cards: List[int], moves: List[np.ndarray]) -> None:
+    def _generate_flush_combinations(
+        self, suit_cards: List[int], moves: List[np.ndarray]
+    ) -> None:
         """Generate valid flush combinations from cards of same suit."""
         for combo in combinations(suit_cards, 5):
             combo_mask = np.zeros(52, dtype=bool)
@@ -619,7 +629,9 @@ class ToyBigTwoFullRules:
 
         return False
 
-    def _generate_straight_combinations(self, hand: List[int], moves: List[np.ndarray]) -> None:
+    def _generate_straight_combinations(
+        self, hand: List[int], moves: List[np.ndarray]
+    ) -> None:
         """Generate straight combinations efficiently."""
         # Pre-filter: only generate combinations that could form straights
         hand_arr = np.array(hand)
@@ -646,7 +658,12 @@ class ToyBigTwoFullRules:
         if all(rank in rank_groups for rank in ace_low_ranks):
             self._build_straights_from_ranks(ace_low_ranks, rank_groups, moves)
 
-    def _build_straights_from_ranks(self, straight_ranks: List[int], rank_groups: Dict[int, List[int]], moves: List[np.ndarray]) -> None:
+    def _build_straights_from_ranks(
+        self,
+        straight_ranks: List[int],
+        rank_groups: Dict[int, List[int]],
+        moves: List[np.ndarray],
+    ) -> None:
         """Build all possible straights from given ranks."""
         # Get one card from each rank to form straights
         rank_choices = [rank_groups[rank] for rank in straight_ranks]
@@ -658,7 +675,9 @@ class ToyBigTwoFullRules:
             if self._beats(combo_mask):
                 moves.append(combo_mask)
 
-    def _cartesian_product(self, lists: List[List[int]]) -> Generator[List[int], None, None]:
+    def _cartesian_product(
+        self, lists: List[List[int]]
+    ) -> Generator[List[int], None, None]:
         """Efficient cartesian product for straight generation."""
         if not lists:
             yield []
