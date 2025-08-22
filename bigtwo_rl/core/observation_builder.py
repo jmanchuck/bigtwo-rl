@@ -5,7 +5,7 @@ enabling experiments with different levels of game state visibility.
 """
 
 import numpy as np
-from typing import Dict, Any
+from typing import Dict, Any, List
 from dataclasses import dataclass, field
 from gymnasium import spaces
 
@@ -201,89 +201,12 @@ class ObservationVectorizer:
         """Convert raw observation dict to configured feature vector."""
         features = []
 
-        # Core features
-        if self.config.include_hand:
-            features.append(raw_obs["hand"].astype(np.float32))
-
-        if self.config.include_last_play:
-            features.append(raw_obs["last_play"].astype(np.float32))
-
-        if self.config.include_hand_sizes:
-            hand_sizes = np.zeros(4, dtype=np.float32)
-            hand_sizes[: game_env.num_players] = np.sum(game_env.hands, axis=1, dtype=np.float32)
-            features.append(hand_sizes)
-
-        # Memory features
-        if self.config.include_played_cards:
-            features.append(self._played_cards.astype(np.float32))
-
-        if self.config.include_remaining_deck:
-            # Cards not in any hand and not played
-            remaining = np.ones(52, dtype=bool)
-            for player_hand in game_env.hands:
-                remaining &= ~player_hand
-            remaining &= ~self._played_cards
-            features.append(remaining.astype(np.float32))
-
-        if self.config.include_cards_by_player:
-            features.append(self._cards_by_player.flatten().astype(np.float32))
-
-        # Context features
-        if self.config.include_last_play_exists:
-            features.append(np.array([raw_obs["last_play_exists"]], dtype=np.float32))
-
-        if self.config.include_game_phase:
-            total_cards = np.sum(game_env.hands)
-            if total_cards > 40:  # Early game
-                phase = [1, 0, 0]
-            elif total_cards > 20:  # Mid game
-                phase = [0, 1, 0]
-            else:  # Late game
-                phase = [0, 0, 1]
-            features.append(np.array(phase, dtype=np.float32))
-
-        if self.config.include_turn_position:
-            # One-hot encode current player position
-            position = np.zeros(4, dtype=np.float32)
-            position[game_env.current_player] = 1
-            features.append(position)
-
-        if self.config.include_trick_history:
-            # Last 3 trick winners (4 players each = 12 features)
-            history = np.zeros(12, dtype=np.float32)
-            for i, winner in enumerate(self._trick_winners[-3:]):
-                if winner < 4:  # Valid player
-                    history[i * 4 + winner] = 1
-            features.append(history)
-
-        # Opponent modeling features
-        if self.config.include_pass_history:
-            features.append(self._pass_counts.astype(np.float32))
-
-        if self.config.include_play_patterns:
-            features.append(self._play_style_metrics.flatten().astype(np.float32))
-
-        # Strategic features
-        if self.config.include_power_cards_remaining:
-            # Check if A♠, 2♠, 2♥, 2♦, 2♣ are still in play
-            power_card_indices = [
-                51,
-                47,
-                35,
-                23,
-                11,
-            ]  # Approximate indices for these cards
-            power_remaining = np.zeros(5, dtype=np.float32)
-            for i, idx in enumerate(power_card_indices):
-                if idx < 52 and not self._played_cards[idx]:
-                    power_remaining[i] = 1
-            features.append(power_remaining)
-
-        if self.config.include_hand_type_capabilities:
-            # Placeholder: analyze what hand types each player could form
-            # This would need complex logic to determine straights, flushes, etc.
-            capabilities = np.zeros(20, dtype=np.float32)  # 4 players * 5 hand types
-            features.append(capabilities)
+        # Collect features from different categories
+        features.extend(self._build_core_features(raw_obs, game_env))
+        features.extend(self._build_memory_features(game_env))
+        features.extend(self._build_context_features(raw_obs, game_env))
+        features.extend(self._build_opponent_modeling_features())
+        features.extend(self._build_strategic_features())
 
         # Concatenate all features
         if not features:
@@ -296,6 +219,123 @@ class ObservationVectorizer:
             raise ValueError(f"Feature vector size mismatch: got {len(result)}, expected {self.config._total_size}")
 
         return result
+
+    def _build_core_features(self, raw_obs: Dict[str, Any], game_env) -> List[np.ndarray]:
+        """Build core game state features (hand, last_play, hand_sizes)."""
+        features = []
+
+        if self.config.include_hand:
+            features.append(raw_obs["hand"].astype(np.float32))
+
+        if self.config.include_last_play:
+            features.append(raw_obs["last_play"].astype(np.float32))
+
+        if self.config.include_hand_sizes:
+            hand_sizes = np.zeros(4, dtype=np.float32)
+            hand_sizes[: game_env.num_players] = np.sum(game_env.hands, axis=1, dtype=np.float32)
+            features.append(hand_sizes)
+
+        return features
+
+    def _build_memory_features(self, game_env) -> List[np.ndarray]:
+        """Build memory-based features (played_cards, remaining_deck, cards_by_player)."""
+        features = []
+
+        if self.config.include_played_cards:
+            features.append(self._played_cards.astype(np.float32))
+
+        if self.config.include_remaining_deck:
+            remaining = self._calculate_remaining_deck(game_env)
+            features.append(remaining.astype(np.float32))
+
+        if self.config.include_cards_by_player:
+            features.append(self._cards_by_player.flatten().astype(np.float32))
+
+        return features
+
+    def _build_context_features(self, raw_obs: Dict[str, Any], game_env) -> List[np.ndarray]:
+        """Build context features (last_play_exists, game_phase, turn_position, trick_history)."""
+        features = []
+
+        if self.config.include_last_play_exists:
+            features.append(np.array([raw_obs["last_play_exists"]], dtype=np.float32))
+
+        if self.config.include_game_phase:
+            phase = self._calculate_game_phase(game_env)
+            features.append(np.array(phase, dtype=np.float32))
+
+        if self.config.include_turn_position:
+            position = np.zeros(4, dtype=np.float32)
+            position[game_env.current_player] = 1
+            features.append(position)
+
+        if self.config.include_trick_history:
+            history = self._calculate_trick_history()
+            features.append(history)
+
+        return features
+
+    def _build_opponent_modeling_features(self) -> List[np.ndarray]:
+        """Build opponent modeling features (pass_history, play_patterns)."""
+        features = []
+
+        if self.config.include_pass_history:
+            features.append(self._pass_counts.astype(np.float32))
+
+        if self.config.include_play_patterns:
+            features.append(self._play_style_metrics.flatten().astype(np.float32))
+
+        return features
+
+    def _build_strategic_features(self) -> List[np.ndarray]:
+        """Build strategic features (power_cards_remaining, hand_type_capabilities)."""
+        features = []
+
+        if self.config.include_power_cards_remaining:
+            power_remaining = self._calculate_power_cards_status()
+            features.append(power_remaining)
+
+        if self.config.include_hand_type_capabilities:
+            # Placeholder: analyze what hand types each player could form
+            capabilities = np.zeros(20, dtype=np.float32)  # 4 players * 5 hand types
+            features.append(capabilities)
+
+        return features
+
+    def _calculate_remaining_deck(self, game_env) -> np.ndarray:
+        """Calculate which cards are still unplayed and not in any hand."""
+        remaining = np.ones(52, dtype=bool)
+        for player_hand in game_env.hands:
+            remaining &= ~player_hand
+        remaining &= ~self._played_cards
+        return remaining
+
+    def _calculate_game_phase(self, game_env) -> List[int]:
+        """Calculate current game phase (early/mid/late)."""
+        total_cards = np.sum(game_env.hands)
+        if total_cards > 40:  # Early game
+            return [1, 0, 0]
+        elif total_cards > 20:  # Mid game
+            return [0, 1, 0]
+        else:  # Late game
+            return [0, 0, 1]
+
+    def _calculate_trick_history(self) -> np.ndarray:
+        """Calculate last 3 trick winners as one-hot encoded features."""
+        history = np.zeros(12, dtype=np.float32)
+        for i, winner in enumerate(self._trick_winners[-3:]):
+            if winner < 4:  # Valid player
+                history[i * 4 + winner] = 1
+        return history
+
+    def _calculate_power_cards_status(self) -> np.ndarray:
+        """Calculate status of power cards (A♠, 2♠, 2♥, 2♦, 2♣)."""
+        power_card_indices = [51, 47, 35, 23, 11]  # Approximate indices for these cards
+        power_remaining = np.zeros(5, dtype=np.float32)
+        for i, idx in enumerate(power_card_indices):
+            if idx < 52 and not self._played_cards[idx]:
+                power_remaining[i] = 1
+        return power_remaining
 
     def update_tracking(self, move, player, game_env):
         """Update tracking state when a move is played."""

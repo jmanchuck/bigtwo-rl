@@ -119,18 +119,38 @@ class Trainer:
         Returns:
             (model, model_directory): Trained model and save path
         """
-
-        # Create model name if not provided
-        if model_name is None:
-            model_name = f"{self.config_name}_{self.reward_name}"
-
+        # Setup phase
+        model_name = model_name or f"{self.config_name}_{self.reward_name}"
         if verbose:
-            print(
-                f"Training with config '{self.config_name}' and reward function '{self.reward_name}'"
-            )
-            print(f"Config: {self.config}")
+            self._print_training_info(model_name)
 
-        # Prepare opponent provider (optional)
+        # Environment setup
+        self._setup_opponent_provider()
+        env, eval_env = self._setup_training_environments()
+
+        # Model creation
+        model = self._create_model_instance(env, model_name, verbose)
+
+        # Callback setup
+        models_dir = f"./models/{model_name}"
+        os.makedirs(models_dir, exist_ok=True)
+        callbacks = self._setup_callbacks(eval_env, models_dir)
+
+        # Training execution
+        self._execute_training_loop(model, total_timesteps, callbacks, models_dir, verbose)
+
+        # Post-training save
+        self._save_model_and_metadata(model, models_dir, total_timesteps, verbose)
+
+        return model, models_dir
+
+    def _print_training_info(self, model_name: str) -> None:
+        """Print training configuration information."""
+        print(f"Training with config '{self.config_name}' and reward function '{self.reward_name}'")
+        print(f"Config: {self.config}")
+
+    def _setup_opponent_provider(self) -> None:
+        """Setup opponent provider if configured."""
         if self.snapshot_dir is not None or self.opponent_mixture is not None:
             snapshot_dir = self.snapshot_dir or "./models"
             pool = OpponentPool(
@@ -140,60 +160,56 @@ class Trainer:
         else:
             self._opponent_provider = None
 
+    def _setup_training_environments(self) -> tuple:
+        """Create training and evaluation environments."""
         # Create training environment with true multiprocessing
         env = SubprocVecEnv([self._make_env for _ in range(self.config["n_envs"])])
-
+        
         # Create evaluation environment (match vectorized type with training to avoid warnings)
         eval_env = SubprocVecEnv([self._make_env])
+        
+        return env, eval_env
 
+    def _create_model_instance(self, env, model_name: str, verbose: bool):
+        """Create PPO or MaskablePPO model instance."""
         # Prefer MaskablePPO if available; fallback to standard PPO
-        use_maskable = False
-        try:
-            from sb3_contrib.ppo_mask import MaskablePPO  # type: ignore
+        use_maskable = self._check_maskable_ppo_availability()
 
-            use_maskable = True
-        except Exception:
-            use_maskable = False
+        model_kwargs = {
+            "policy": "MlpPolicy",
+            "env": env,
+            "learning_rate": self.config["learning_rate"],
+            "n_steps": self.config["n_steps"],
+            "batch_size": self.config["batch_size"],
+            "n_epochs": self.config["n_epochs"],
+            "gamma": self.config["gamma"],
+            "gae_lambda": self.config["gae_lambda"],
+            "clip_range": self.config["clip_range"],
+            "verbose": 1 if verbose else 0,
+            "tensorboard_log": f"./logs/{model_name}/",
+        }
 
         if use_maskable:
             from sb3_contrib.ppo_mask import MaskablePPO  # type: ignore
-
-            model = MaskablePPO(
-                "MlpPolicy",
-                env,
-                learning_rate=self.config["learning_rate"],
-                n_steps=self.config["n_steps"],
-                batch_size=self.config["batch_size"],
-                n_epochs=self.config["n_epochs"],
-                gamma=self.config["gamma"],
-                gae_lambda=self.config["gae_lambda"],
-                clip_range=self.config["clip_range"],
-                verbose=1 if verbose else 0,
-                tensorboard_log=f"./logs/{model_name}/",
-            )
+            return MaskablePPO(**model_kwargs)
         else:
-            model = PPO(
-                "MlpPolicy",
-                env,
-                learning_rate=self.config["learning_rate"],
-                n_steps=self.config["n_steps"],
-                batch_size=self.config["batch_size"],
-                n_epochs=self.config["n_epochs"],
-                gamma=self.config["gamma"],
-                gae_lambda=self.config["gae_lambda"],
-                clip_range=self.config["clip_range"],
-                verbose=1 if verbose else 0,
-                tensorboard_log=f"./logs/{model_name}/",
-            )
+            return PPO(**model_kwargs)
 
-        # Setup evaluation and optional snapshotting callbacks
-        models_dir = f"./models/{model_name}"
-        os.makedirs(models_dir, exist_ok=True)
+    def _check_maskable_ppo_availability(self) -> bool:
+        """Check if MaskablePPO is available."""
+        try:
+            from sb3_contrib.ppo_mask import MaskablePPO  # type: ignore
+            return True
+        except Exception:
+            return False
 
+    def _setup_callbacks(self, eval_env, models_dir: str) -> list:
+        """Setup training callbacks (evaluation, metrics, snapshots)."""
+        # Setup evaluation callback
         eval_callback = EvalCallback(
             eval_env,
             best_model_save_path=models_dir,
-            log_path=f"./logs/{model_name}/",
+            log_path=f"./logs/{os.path.basename(models_dir)}/",
             eval_freq=self.eval_freq,
             deterministic=True,
             render=False,
@@ -207,37 +223,44 @@ class Trainer:
         
         # Add snapshot callback if configured
         if self.snapshot_every_steps is not None and self.snapshot_every_steps > 0:
-
-            class SnapshotCallback(BaseCallback):
-                def __init__(self, save_dir: str, freq: int, verbose: int = 0):
-                    super().__init__(verbose)
-                    self.save_dir = save_dir
-                    self.freq = freq
-                    os.makedirs(self.save_dir, exist_ok=True)
-
-                def _on_step(self) -> bool:
-                    if self.n_calls % self.freq == 0:
-                        path = os.path.join(self.save_dir, f"step_{self.n_calls}")
-                        os.makedirs(path, exist_ok=True)
-                        self.model.save(os.path.join(path, "model"))
-                    return True
-
-            snapshot_dir = self.snapshot_dir or models_dir
-            snapshot_cb = SnapshotCallback(
-                save_dir=snapshot_dir, freq=self.snapshot_every_steps
-            )
+            snapshot_cb = self._create_snapshot_callback(models_dir)
             callbacks.append(snapshot_cb)
         
-        callback = callbacks
+        return callbacks
 
+    def _create_snapshot_callback(self, models_dir: str):
+        """Create snapshot callback for periodic model saving."""
+        class SnapshotCallback(BaseCallback):
+            def __init__(self, save_dir: str, freq: int, verbose: int = 0):
+                super().__init__(verbose)
+                self.save_dir = save_dir
+                self.freq = freq
+                os.makedirs(self.save_dir, exist_ok=True)
+
+            def _on_step(self) -> bool:
+                if self.n_calls % self.freq == 0:
+                    path = os.path.join(self.save_dir, f"step_{self.n_calls}")
+                    os.makedirs(path, exist_ok=True)
+                    self.model.save(os.path.join(path, "model"))
+                return True
+
+        snapshot_dir = self.snapshot_dir or models_dir
+        return SnapshotCallback(
+            save_dir=snapshot_dir, freq=self.snapshot_every_steps
+        )
+
+    def _execute_training_loop(self, model, total_timesteps: int, callbacks: list, models_dir: str, verbose: bool) -> None:
+        """Execute the main training loop."""
         if verbose:
             print(f"Starting PPO training for {total_timesteps} timesteps...")
             print(f"Model will be saved in: {models_dir}")
 
         model.learn(
-            total_timesteps=total_timesteps, callback=callback, progress_bar=False
+            total_timesteps=total_timesteps, callback=callbacks, progress_bar=False
         )
 
+    def _save_model_and_metadata(self, model, models_dir: str, total_timesteps: int, verbose: bool) -> None:
+        """Save final model and metadata."""
         # Save final model
         model.save(f"{models_dir}/final_model")
 
@@ -258,5 +281,3 @@ class Trainer:
 
         if verbose:
             print(f"Training completed! Model saved in {models_dir}")
-
-        return model, models_dir

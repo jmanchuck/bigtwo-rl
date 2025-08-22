@@ -125,8 +125,6 @@ class BigTwoRLWrapper(gym.Env):
         """
         info = {}
         reward_to_return = 0.0
-        done = False
-        terminated = False
 
         # Helper to apply a single move for the current player (either agent or opponent)
         def _apply_move(move_index: int):
@@ -136,39 +134,169 @@ class BigTwoRLWrapper(gym.Env):
             self.game_state_tracker.increment_turn_counter()
             return raw_obs_local, game_done_local, info_local
 
-        # If we have opponents configured, autoplay them until it's our turn
-        if self.opponent_controller.has_opponents():
-            raw_obs = None
-            # Autoplay opponents until controlled player's turn
-            while (self.env.current_player != self.controlled_player) and (not done):
-                # Opponent acts
-                opp_player = self.env.current_player
-                legal_moves_opp = self.game_state_tracker.get_legal_moves_cached(self.env, opp_player)
-                move_idx = self._select_opponent_action(opp_player)
-                # Track opponent move for observation memory features
-                try:
-                    selected_move = legal_moves_opp[move_idx] if move_idx < len(legal_moves_opp) else []
-                    self.obs_vectorizer.update_tracking(selected_move, opp_player, self.env)
-                except Exception:
-                    pass
-                raw_obs, game_done, _ = _apply_move(move_idx)
-                if game_done:
-                    # Handle end of a single game
-                    reward_to_return += self._handle_game_end_reward()
-                    # Start next game or finish episode
-                    ep_done, raw_obs = self._advance_or_reset_game()
-                    if ep_done:
-                        terminated = True
-                        break
-            if terminated:
-                # Add episode bonus at episode end
-                reward_to_return += float(self._calculate_episode_bonus())
-                # Add Big Two metrics to info when episode completes
-                info.update(self.get_episode_metrics())
-                self.current_obs = self._vectorize_obs(raw_obs)
-                return self.current_obs, reward_to_return, True, False, info
+        # Phase 1: Autoplay opponents until it's the controlled player's turn
+        opp_reward, terminated, raw_obs, opp_info = self._autoplay_opponents_until_controlled_player(_apply_move)
+        reward_to_return += opp_reward
+        info.update(opp_info)
+        
+        if terminated:
+            return self._handle_episode_termination(reward_to_return, raw_obs, info)
 
-        # Now it should be the controlled player's turn (or no opponents configured)
+        # Phase 2: Process the controlled player's move
+        raw_obs, game_done, step_info = self._process_controlled_player_move(action, _apply_move)
+        info.update(step_info)
+
+        # Phase 3: Handle game end if it occurred
+        if game_done:
+            reward_to_return += self._handle_game_end_reward()
+            ep_done, raw_obs = self._advance_or_reset_game()
+            if ep_done:
+                return self._handle_episode_termination(reward_to_return, raw_obs, info)
+
+        # Phase 4: Autoplay opponents after controlled player's move
+        opp_reward_after, terminated_after, final_raw_obs, final_info = self._autoplay_opponents_after_controlled_move(_apply_move)
+        reward_to_return += opp_reward_after
+        info.update(final_info)
+        
+        if terminated_after:
+            return self._handle_episode_termination(reward_to_return, final_raw_obs or raw_obs, info)
+
+        # Return observation for the controlled player's next decision point
+        self.current_obs = self._vectorize_obs(final_raw_obs or raw_obs)
+        return self.current_obs, reward_to_return, False, False, info
+
+    def _vectorize_obs(self, raw_obs: Dict[str, Any]) -> np.ndarray:
+        """Convert dict observation to configured feature vector."""
+        return self.obs_vectorizer.vectorize(raw_obs, self.env)
+
+    def _execute_single_opponent_move(self, apply_move_fn) -> Tuple[Optional[Dict[str, Any]], bool, float]:
+        """Execute a single opponent move and return results.
+        
+        Args:
+            apply_move_fn: Function to apply a move to the environment
+            
+        Returns:
+            Tuple of (raw_obs, game_done, additional_reward)
+        """
+        opp_player = self.env.current_player
+        legal_moves_opp = self.game_state_tracker.get_legal_moves_cached(self.env, opp_player)
+        move_idx = self._select_opponent_action(opp_player)
+        
+        # Track opponent move for observation memory features
+        try:
+            selected_move = legal_moves_opp[move_idx] if move_idx < len(legal_moves_opp) else []
+            self.obs_vectorizer.update_tracking(selected_move, opp_player, self.env)
+        except Exception:
+            pass
+            
+        raw_obs, game_done, _ = apply_move_fn(move_idx)
+        additional_reward = 0.0
+        
+        if game_done:
+            # Handle end of a single game
+            additional_reward = self._handle_game_end_reward()
+            
+        return raw_obs, game_done, additional_reward
+
+    def _autoplay_opponents_until_controlled_player(self, apply_move_fn) -> Tuple[float, bool, Optional[Dict[str, Any]], Dict[str, Any]]:
+        """Autoplay opponents until it's the controlled player's turn.
+        
+        Args:
+            apply_move_fn: Function to apply a move to the environment
+            
+        Returns:
+            Tuple of (total_reward, terminated, final_raw_obs, final_info)
+        """
+        if not self.opponent_controller.has_opponents():
+            return 0.0, False, None, {}
+            
+        total_reward = 0.0
+        terminated = False
+        raw_obs = None
+        info = {}
+        
+        # Autoplay opponents until controlled player's turn
+        while (self.env.current_player != self.controlled_player) and (not terminated):
+            raw_obs, game_done, additional_reward = self._execute_single_opponent_move(apply_move_fn)
+            total_reward += additional_reward
+            
+            if game_done:
+                # Start next game or finish episode
+                ep_done, raw_obs = self._advance_or_reset_game()
+                if ep_done:
+                    terminated = True
+                    break
+                    
+        return total_reward, terminated, raw_obs, info
+
+    def _autoplay_opponents_after_controlled_move(self, apply_move_fn) -> Tuple[float, bool, Optional[Dict[str, Any]], Dict[str, Any]]:
+        """Autoplay opponents after the controlled player's move until next controlled turn.
+        
+        Args:
+            apply_move_fn: Function to apply a move to the environment
+            
+        Returns:
+            Tuple of (total_reward, terminated, final_raw_obs, final_info)
+        """
+        if not self.opponent_controller.has_opponents():
+            return 0.0, False, None, {}
+            
+        total_reward = 0.0
+        terminated = False
+        raw_obs = None
+        info = {}
+        
+        while self.env.current_player != self.controlled_player:
+            raw_obs, game_done, additional_reward = self._execute_single_opponent_move(apply_move_fn)
+            total_reward += additional_reward
+            
+            if game_done:
+                # Start next game or finish episode
+                ep_done, raw_obs = self._advance_or_reset_game()
+                if ep_done:
+                    terminated = True
+                    break
+                    
+        return total_reward, terminated, raw_obs, info
+
+    def _handle_episode_termination(self, reward_to_return: float, raw_obs: Optional[Dict[str, Any]], info: Dict[str, Any]) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
+        """Handle episode termination by adding bonus and metrics.
+        
+        Args:
+            reward_to_return: Accumulated reward so far
+            raw_obs: Final raw observation
+            info: Info dictionary to update
+            
+        Returns:
+            Complete step return tuple for terminated episode
+        """
+        # Add episode bonus at episode end
+        total_reward = reward_to_return + float(self.episode_manager.calculate_episode_bonus(self.reward_function))
+        
+        # Add Big Two metrics to info when episode completes
+        info.update(self.episode_manager.get_episode_metrics())
+        
+        self.current_obs = self._vectorize_obs(raw_obs)
+        return self.current_obs, total_reward, True, False, info
+
+    def _calculate_episode_bonus(self) -> float:
+        """Calculate episode bonus using episode manager."""
+        return self.episode_manager.calculate_episode_bonus(self.reward_function)
+
+    def get_episode_metrics(self) -> Dict[str, float]:
+        """Get episode metrics from episode manager."""
+        return self.episode_manager.get_episode_metrics()
+
+    def _process_controlled_player_move(self, action: int, apply_move_fn) -> Tuple[Dict[str, Any], bool, Dict[str, Any]]:
+        """Process the controlled player's move including validation and tracking.
+        
+        Args:
+            action: Action index for the controlled player
+            apply_move_fn: Function to apply a move to the environment
+            
+        Returns:
+            Tuple of (raw_obs, game_done, info)
+        """
         # Convert action index to actual move for current player
         legal_moves = self.game_state_tracker.get_legal_moves_cached(self.env, self.env.current_player)
         # Validate and clamp action to legal range
@@ -180,10 +308,22 @@ class BigTwoRLWrapper(gym.Env):
             self.obs_vectorizer.update_tracking(selected_move_cp, self.env.current_player, self.env)
         except Exception:
             pass
-        raw_obs, game_done, info = _apply_move(move_idx)
+            
+        raw_obs, game_done, info = apply_move_fn(move_idx)
         self.episode_manager.increment_steps()
         
         # Track move bonus and move types for controlled player
+        self._track_move_bonus_and_metrics(legal_moves, move_idx)
+        
+        return raw_obs, game_done, info
+
+    def _track_move_bonus_and_metrics(self, legal_moves: List[np.ndarray], move_idx: int) -> None:
+        """Track move bonus and move types for the controlled player.
+        
+        Args:
+            legal_moves: List of legal moves available
+            move_idx: Index of the selected move
+        """
         if self.reward_function is not None and hasattr(self.reward_function, 'move_bonus'):
             selected_move = legal_moves[move_idx]
             if isinstance(selected_move, np.ndarray):
@@ -194,47 +334,6 @@ class BigTwoRLWrapper(gym.Env):
                 
                 # Track move types for metrics
                 self.episode_manager.track_move_type(move_cards)
-
-        if game_done:
-            reward_to_return += self._handle_game_end_reward()
-            ep_done, raw_obs = self._advance_or_reset_game()
-            if ep_done:
-                reward_to_return += float(self.episode_manager.calculate_episode_bonus(self.reward_function))
-                # Add Big Two metrics to info when episode completes
-                info.update(self.episode_manager.get_episode_metrics())
-                self.current_obs = self._vectorize_obs(raw_obs)
-                return self.current_obs, reward_to_return, True, False, info
-
-        # After our move, if opponents exist, autoplay them until it's our turn again or episode ends
-        if self.opponent_controller.has_opponents():
-            while self.env.current_player != self.controlled_player:
-                opp_player = self.env.current_player
-                legal_moves_opp = self.game_state_tracker.get_legal_moves_cached(self.env, opp_player)
-                move_idx = self._select_opponent_action(opp_player)
-                # Track opponent move for observation memory features
-                try:
-                    selected_move = legal_moves_opp[move_idx] if move_idx < len(legal_moves_opp) else []
-                    self.obs_vectorizer.update_tracking(selected_move, opp_player, self.env)
-                except Exception:
-                    pass
-                raw_obs, game_done, _ = _apply_move(move_idx)
-                if game_done:
-                    reward_to_return += self._handle_game_end_reward()
-                    ep_done, raw_obs = self._advance_or_reset_game()
-                    if ep_done:
-                        reward_to_return += float(self.episode_manager.calculate_episode_bonus(self.reward_function))
-                        # Add Big Two metrics to info when episode completes
-                        info.update(self.episode_manager.get_episode_metrics())
-                        self.current_obs = self._vectorize_obs(raw_obs)
-                        return self.current_obs, reward_to_return, True, False, info
-
-        # Return observation for the controlled player's next decision point (or next game start)
-        self.current_obs = self._vectorize_obs(raw_obs)
-        return self.current_obs, reward_to_return, False, False, info
-
-    def _vectorize_obs(self, raw_obs: Dict[str, Any]) -> np.ndarray:
-        """Convert dict observation to configured feature vector."""
-        return self.obs_vectorizer.vectorize(raw_obs, self.env)
 
 
     def get_action_mask(self) -> np.ndarray:
