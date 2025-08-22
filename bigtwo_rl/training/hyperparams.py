@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from abc import ABC
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=False)
 class BaseConfig(ABC):
     """Base class for hyperparameter configurations."""
 
@@ -34,7 +34,7 @@ class BaseConfig(ABC):
         }
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=False)
 class DefaultConfig(BaseConfig):
     """Default hyperparameter configuration for balanced training."""
 
@@ -49,7 +49,7 @@ class DefaultConfig(BaseConfig):
     n_envs: int = min(8, max(2, (os.cpu_count() or 4) // 2))
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=False)
 class AggressiveConfig(BaseConfig):
     """Aggressive hyperparameter configuration for faster, less stable training."""
 
@@ -64,7 +64,7 @@ class AggressiveConfig(BaseConfig):
     n_envs: int = min(6, max(2, (os.cpu_count() or 6) // 3))
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=False)
 class ConservativeConfig(BaseConfig):
     """Conservative hyperparameter configuration for stable, slower training."""
 
@@ -79,7 +79,7 @@ class ConservativeConfig(BaseConfig):
     n_envs: int = min(4, max(2, (os.cpu_count() or 4) // 2))
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=False)
 class FastExperimentalConfig(BaseConfig):
     """Fast experimental hyperparameter configuration for quick testing."""
 

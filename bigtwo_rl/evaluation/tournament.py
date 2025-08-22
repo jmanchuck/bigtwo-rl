@@ -228,8 +228,14 @@ def _run_game_batch(
 
     # Create environment with observation space that supports all agents
     env_obs_config = _union_observation_config_for_agents(agents)
+    
+    # Check if any agent is a HumanAgent to enable move history tracking
+    from ..agents.human_agent import HumanAgent
+    track_history = any(isinstance(agent, HumanAgent) for agent in agents)
+    
     env = BigTwoRLWrapper(
-        num_players=4, games_per_episode=1, observation_config=env_obs_config
+        num_players=4, games_per_episode=1, observation_config=env_obs_config,
+        track_move_history=track_history
     )
 
     # Initialize tracking
@@ -330,8 +336,14 @@ def _play_four_player_series_sequential(
 ) -> Dict:
     """Sequential version of play_four_player_series for comparison and small runs."""
     env_obs_config = _union_observation_config_for_agents(agents)
+    
+    # Check if any agent is a HumanAgent to enable move history tracking
+    from ..agents.human_agent import HumanAgent
+    track_history = any(isinstance(agent, HumanAgent) for agent in agents)
+    
     env = BigTwoRLWrapper(
-        num_players=4, games_per_episode=1, observation_config=env_obs_config
+        num_players=4, games_per_episode=1, observation_config=env_obs_config,
+        track_move_history=track_history
     )
 
     # Local aggregates per agent

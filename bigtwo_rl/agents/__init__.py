@@ -5,6 +5,7 @@ from .random_agent import RandomAgent
 from .greedy_agent import GreedyAgent
 from .ppo_agent import PPOAgent
 from .balanced_agent import BalancedRandomAgent, MoveTypeBalancedWrapper
+from .human_agent import HumanAgent
 import os
 from typing import Optional
 
@@ -42,5 +43,6 @@ __all__ = [
     "PPOAgent",
     "BalancedRandomAgent",
     "MoveTypeBalancedWrapper",
+    "HumanAgent",
     "load_ppo_agent",
 ]

@@ -12,6 +12,7 @@ from ..core.observation_builder import ObservationConfig
 from .hyperparams import BaseConfig
 from .rewards import BaseReward
 from .opponent_pool import OpponentPool, EnvOpponentProvider
+from .callbacks import BigTwoMetricsCallback
 
 
 class ConfigurableBigTwoWrapper(BigTwoRLWrapper):
@@ -50,6 +51,7 @@ class Trainer:
         opponent_mixture: Optional[dict] = None,
         snapshot_dir: Optional[str] = None,
         snapshot_every_steps: Optional[int] = None,
+        enable_bigtwo_metrics: bool = True,
     ):
         """
         Initialize trainer.
@@ -63,6 +65,7 @@ class Trainer:
             snapshot_dir: Directory to save model snapshots
             snapshot_every_steps: How often to save snapshots
             observation_config: Custom observation configuration
+            enable_bigtwo_metrics: Whether to log Big Two-specific metrics to TensorBoard
         """
         # Store reward function and hyperparameters directly
         self.reward_function = reward_function
@@ -77,17 +80,27 @@ class Trainer:
         self.snapshot_dir = snapshot_dir
         self.snapshot_every_steps = snapshot_every_steps
         self.observation_config = observation_config
+        self.enable_bigtwo_metrics = enable_bigtwo_metrics
         self._opponent_provider = None
 
     def _make_env(self):
         """Create environment instance with configuration."""
-        return ConfigurableBigTwoWrapper(
+        env = ConfigurableBigTwoWrapper(
             observation_config=self.observation_config,
             games_per_episode=self.config["games_per_episode"],
             reward_function=self.reward_function,
             controlled_player=self.controlled_player,
             opponent_provider=self._opponent_provider,
         )
+        # If maskable PPO is available, wrap env to expose action masks
+        try:
+            from sb3_contrib.common.wrappers import ActionMasker  # type: ignore
+
+            env = ActionMasker(env, lambda e: e.action_masks())
+        except Exception:
+            # Fallback: continue without explicit mask wrapper
+            pass
+        return env
 
     def train(
         self,
@@ -130,23 +143,48 @@ class Trainer:
         # Create training environment with true multiprocessing
         env = SubprocVecEnv([self._make_env for _ in range(self.config["n_envs"])])
 
-        # Create evaluation environment
-        eval_env = make_vec_env(self._make_env, n_envs=1)
+        # Create evaluation environment (match vectorized type with training to avoid warnings)
+        eval_env = SubprocVecEnv([self._make_env])
 
-        # PPO configuration from config
-        model = PPO(
-            "MlpPolicy",
-            env,
-            learning_rate=self.config["learning_rate"],
-            n_steps=self.config["n_steps"],
-            batch_size=self.config["batch_size"],
-            n_epochs=self.config["n_epochs"],
-            gamma=self.config["gamma"],
-            gae_lambda=self.config["gae_lambda"],
-            clip_range=self.config["clip_range"],
-            verbose=1 if verbose else 0,
-            tensorboard_log=f"./logs/{model_name}/",
-        )
+        # Prefer MaskablePPO if available; fallback to standard PPO
+        use_maskable = False
+        try:
+            from sb3_contrib.ppo_mask import MaskablePPO  # type: ignore
+
+            use_maskable = True
+        except Exception:
+            use_maskable = False
+
+        if use_maskable:
+            from sb3_contrib.ppo_mask import MaskablePPO  # type: ignore
+
+            model = MaskablePPO(
+                "MlpPolicy",
+                env,
+                learning_rate=self.config["learning_rate"],
+                n_steps=self.config["n_steps"],
+                batch_size=self.config["batch_size"],
+                n_epochs=self.config["n_epochs"],
+                gamma=self.config["gamma"],
+                gae_lambda=self.config["gae_lambda"],
+                clip_range=self.config["clip_range"],
+                verbose=1 if verbose else 0,
+                tensorboard_log=f"./logs/{model_name}/",
+            )
+        else:
+            model = PPO(
+                "MlpPolicy",
+                env,
+                learning_rate=self.config["learning_rate"],
+                n_steps=self.config["n_steps"],
+                batch_size=self.config["batch_size"],
+                n_epochs=self.config["n_epochs"],
+                gamma=self.config["gamma"],
+                gae_lambda=self.config["gae_lambda"],
+                clip_range=self.config["clip_range"],
+                verbose=1 if verbose else 0,
+                tensorboard_log=f"./logs/{model_name}/",
+            )
 
         # Setup evaluation and optional snapshotting callbacks
         models_dir = f"./models/{model_name}"
@@ -161,7 +199,13 @@ class Trainer:
             render=False,
         )
 
-        callback = eval_callback
+        callbacks = [eval_callback]
+        
+        # Add Big Two metrics callback if enabled
+        if self.enable_bigtwo_metrics:
+            callbacks.append(BigTwoMetricsCallback(verbose=0))
+        
+        # Add snapshot callback if configured
         if self.snapshot_every_steps is not None and self.snapshot_every_steps > 0:
 
             class SnapshotCallback(BaseCallback):
@@ -182,7 +226,9 @@ class Trainer:
             snapshot_cb = SnapshotCallback(
                 save_dir=snapshot_dir, freq=self.snapshot_every_steps
             )
-            callback = [eval_callback, snapshot_cb]
+            callbacks.append(snapshot_cb)
+        
+        callback = callbacks
 
         if verbose:
             print(f"Starting PPO training for {total_timesteps} timesteps...")

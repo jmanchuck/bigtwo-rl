@@ -20,9 +20,10 @@ class BigTwoRLWrapper(gym.Env):
         reward_function=None,
         controlled_player: int = 0,
         opponent_provider=None,
+        track_move_history: bool = False,
     ):
         super().__init__()
-        self.env = ToyBigTwoFullRules(num_players)
+        self.env = ToyBigTwoFullRules(num_players, track_move_history=track_move_history)
         self.num_players = num_players
         self.games_per_episode = games_per_episode
         self.reward_function = (
@@ -47,6 +48,15 @@ class BigTwoRLWrapper(gym.Env):
         self._cache_state_hash = None
         self._cache_turn_counter = 0
 
+        # Move bonus tracking for complex moves
+        self._accumulated_move_bonuses = 0.0  # Bonuses from moves in current episode
+        
+        # Big Two metrics tracking
+        self._episode_steps = 0
+        self._move_counts = {"singles": 0, "pairs": 0, "five_cards": 0}
+        self._final_positions = []  # Rankings across games in episode
+        self._total_opponent_cards = 0  # For advantage calculation
+
         # Action space: Dynamic based on legal moves (max estimated around 1000 for 5-card combos)
         # We'll use a large fixed space and mask invalid actions
         self.action_space = spaces.Discrete(2000)
@@ -69,6 +79,13 @@ class BigTwoRLWrapper(gym.Env):
         self.games_won = 0
         self.total_cards_when_losing = 0
         self.losses_count = 0
+        self._accumulated_move_bonuses = 0.0
+        
+        # Reset metrics tracking
+        self._episode_steps = 0
+        self._move_counts = {"singles": 0, "pairs": 0, "five_cards": 0}
+        self._final_positions = []
+        self._total_opponent_cards = 0
 
         # Clear cache on reset
         self._cached_legal_moves = None
@@ -85,6 +102,13 @@ class BigTwoRLWrapper(gym.Env):
             self._episode_opponents = self.opponent_provider.get_episode_opponents(
                 self.num_players, self.controlled_player
             )
+            # Provide env reference to opponents that support it (for better play)
+            for agent in self._episode_opponents.values():
+                if hasattr(agent, "set_env_reference"):
+                    try:
+                        agent.set_env_reference(self)  # type: ignore
+                    except Exception:
+                        pass
         else:
             self._episode_opponents = None
         self.current_obs = self._vectorize_obs(raw_obs)
@@ -111,7 +135,14 @@ class BigTwoRLWrapper(gym.Env):
             while (self.env.current_player != self.controlled_player) and (not done):
                 # Opponent acts
                 opp_player = self.env.current_player
+                legal_moves_opp = self._get_legal_moves_cached(opp_player)
                 move_idx = self._select_opponent_action(opp_player)
+                # Track opponent move for observation memory features
+                try:
+                    selected_move = legal_moves_opp[move_idx] if move_idx < len(legal_moves_opp) else []
+                    self.obs_vectorizer.update_tracking(selected_move, opp_player, self.env)
+                except Exception:
+                    pass
                 raw_obs, game_done, _ = _apply_move(move_idx)
                 if game_done:
                     # Handle end of a single game
@@ -124,25 +155,54 @@ class BigTwoRLWrapper(gym.Env):
             if terminated:
                 # Add episode bonus at episode end
                 reward_to_return += float(self._calculate_episode_bonus())
+                # Add Big Two metrics to info when episode completes
+                info.update(self.get_episode_metrics())
                 self.current_obs = self._vectorize_obs(raw_obs)
                 return self.current_obs, reward_to_return, True, False, info
 
         # Now it should be the controlled player's turn (or no opponents configured)
         # Convert action index to actual move for current player
         legal_moves = self._get_legal_moves_cached(self.env.current_player)
-        if action >= len(legal_moves):
-            pass_idx = self._find_pass_move_idx(legal_moves)
-            move_idx = pass_idx if pass_idx is not None else 0
+        if len(legal_moves) == 0:
+            move_idx = 0
         else:
-            move_idx = action
+            # Map oversized actions into current legal move range to avoid systematic passes
+            move_idx = int(action) % len(legal_moves)
 
+        # Track controlled player's move for observation memory features and metrics
+        try:
+            selected_move_cp = legal_moves[move_idx] if move_idx < len(legal_moves) else []
+            self.obs_vectorizer.update_tracking(selected_move_cp, self.env.current_player, self.env)
+        except Exception:
+            pass
         raw_obs, game_done, info = _apply_move(move_idx)
+        self._episode_steps += 1
+        
+        # Track move bonus and move types for controlled player
+        if self.reward_function is not None and hasattr(self.reward_function, 'move_bonus'):
+            selected_move = legal_moves[move_idx]
+            if isinstance(selected_move, np.ndarray):
+                # Convert boolean mask to list of card indices
+                move_cards = np.where(selected_move)[0].tolist()
+                move_bonus = self.reward_function.move_bonus(move_cards)
+                self._accumulated_move_bonuses += move_bonus
+                
+                # Track move types for metrics
+                move_count = len(move_cards)
+                if move_count == 1:
+                    self._move_counts["singles"] += 1
+                elif move_count == 2:
+                    self._move_counts["pairs"] += 1
+                elif move_count == 5:
+                    self._move_counts["five_cards"] += 1
 
         if game_done:
             reward_to_return += self._handle_game_end_reward()
             ep_done, raw_obs = self._advance_or_reset_game()
             if ep_done:
                 reward_to_return += float(self._calculate_episode_bonus())
+                # Add Big Two metrics to info when episode completes
+                info.update(self.get_episode_metrics())
                 self.current_obs = self._vectorize_obs(raw_obs)
                 return self.current_obs, reward_to_return, True, False, info
 
@@ -150,13 +210,22 @@ class BigTwoRLWrapper(gym.Env):
         if self._episode_opponents is not None:
             while self.env.current_player != self.controlled_player:
                 opp_player = self.env.current_player
+                legal_moves_opp = self._get_legal_moves_cached(opp_player)
                 move_idx = self._select_opponent_action(opp_player)
+                # Track opponent move for observation memory features
+                try:
+                    selected_move = legal_moves_opp[move_idx] if move_idx < len(legal_moves_opp) else []
+                    self.obs_vectorizer.update_tracking(selected_move, opp_player, self.env)
+                except Exception:
+                    pass
                 raw_obs, game_done, _ = _apply_move(move_idx)
                 if game_done:
                     reward_to_return += self._handle_game_end_reward()
                     ep_done, raw_obs = self._advance_or_reset_game()
                     if ep_done:
                         reward_to_return += float(self._calculate_episode_bonus())
+                        # Add Big Two metrics to info when episode completes
+                        info.update(self.get_episode_metrics())
                         self.current_obs = self._vectorize_obs(raw_obs)
                         return self.current_obs, reward_to_return, True, False, info
 
@@ -210,6 +279,11 @@ class BigTwoRLWrapper(gym.Env):
 
         return mask
 
+    # For sb3-contrib MaskablePPO compatibility
+    def action_masks(self) -> np.ndarray:
+        """Alias used by ActionMasker wrapper to fetch the current legal action mask."""
+        return self.get_action_mask()
+
     def _find_pass_move_idx(self, legal_moves: List[np.ndarray]) -> Optional[int]:
         """Find index of pass move (all-False array or empty list) in legal_moves list."""
         for i, move in enumerate(legal_moves):
@@ -249,19 +323,73 @@ class BigTwoRLWrapper(gym.Env):
 
     def _calculate_episode_bonus(self) -> float:
         """Calculate episode bonus based on overall performance."""
+        episode_bonus = 0.0
+        
         if self.reward_function is not None and self.games_played > 0:
             avg_cards_left = (
                 (self.total_cards_when_losing / self.losses_count)
                 if self.losses_count > 0
                 else 0
             )
-            return self.reward_function.episode_bonus(
+            episode_bonus = self.reward_function.episode_bonus(
                 self.games_won, self.games_played, avg_cards_left
             )
-
-        # Default episode bonus
-        win_rate = self.games_won / self.games_played if self.games_played > 0 else 0
-        return 0.5 if win_rate > 0.6 else 0
+        else:
+            # Default episode bonus
+            win_rate = self.games_won / self.games_played if self.games_played > 0 else 0
+            episode_bonus = 0.5 if win_rate > 0.6 else 0
+        
+        # Add accumulated move bonuses from complex moves throughout the episode
+        total_bonus = episode_bonus + self._accumulated_move_bonuses
+        return total_bonus
+    
+    def get_episode_metrics(self) -> Dict[str, float]:
+        """Get Big Two-specific metrics for the completed episode."""
+        if self.games_played == 0:
+            return {}
+        
+        # Performance metrics
+        win_rate = self.games_won / self.games_played
+        avg_cards_remaining = self.total_cards_when_losing / self.losses_count if self.losses_count > 0 else 0
+        # Overall average cards left including wins (winner has 0); closer to tournament stat
+        # Compute by reconstructing per-game averages from tracked aggregates
+        # We approximate overall average for the controlled player as:
+        #   (sum(cards when losing) + 0 * games_won) / games_played
+        avg_cards_overall = (
+            (self.total_cards_when_losing) / self.games_played
+            if self.games_played > 0
+            else 0
+        )
+        final_position_avg = sum(self._final_positions) / len(self._final_positions) if self._final_positions else 0
+        
+        # Opponent analysis
+        avg_opponent_cards_per_game = self._total_opponent_cards / (self.games_played * (self.num_players - 1))
+        controlled_cards_per_game = self.total_cards_when_losing / self.losses_count if self.losses_count > 0 else 0
+        cards_advantage = avg_opponent_cards_per_game - controlled_cards_per_game
+        
+        # Strategy metrics  
+        total_moves = sum(self._move_counts.values())
+        complex_moves = self._move_counts["pairs"] + self._move_counts["five_cards"]
+        complex_move_ratio = complex_moves / total_moves if total_moves > 0 else 0
+        avg_game_length = self._episode_steps / self.games_played
+        
+        # Count dominant wins (wins where average opponent had ≥8 cards)
+        dominant_wins = sum(1 for pos in self._final_positions if pos == 1) if self.games_won > 0 else 0
+        
+        return {
+            "bigtwo/win_rate": win_rate,
+            "bigtwo/avg_cards_remaining": avg_cards_remaining,
+            "bigtwo/avg_cards_overall": avg_cards_overall,
+            "bigtwo/final_position_avg": final_position_avg,
+            "bigtwo/cards_advantage": cards_advantage,
+            "bigtwo/five_card_hands_played": float(self._move_counts["five_cards"]),
+            "bigtwo/complex_move_ratio": complex_move_ratio,
+            "bigtwo/move_bonuses_earned": self._accumulated_move_bonuses,
+            "bigtwo/avg_game_length": avg_game_length,
+            "bigtwo/games_completed": float(self.games_played),
+            "bigtwo/games_won": float(self.games_won),
+            "bigtwo/games_lost": float(self.losses_count),
+        }
 
     # --- New helpers for opponent autoplay and episode/game transitions ---
     def _select_opponent_action(self, player_idx: int) -> int:
@@ -288,14 +416,38 @@ class BigTwoRLWrapper(gym.Env):
     def _handle_game_end_reward(self) -> float:
         """Process end-of-game bookkeeping and return the controlled player's immediate reward."""
         self.games_played += 1
-        # Reward for the controlled player
+        
+        # Calculate cards remaining for all players at game end
+        all_cards_left = [int(np.sum(self.env.hands[i])) for i in range(self.num_players)]
+        controlled_cards = all_cards_left[self.controlled_player]
+        
+        # Find the actual winner (player with 0 cards)
+        winner_player = None
+        for i, cards in enumerate(all_cards_left):
+            if cards == 0:
+                winner_player = i
+                break
+        
+        # Track final position (1st place = 1, 4th place = 4) based on cards remaining
+        sorted_positions = sorted(enumerate(all_cards_left), key=lambda x: x[1])
+        position = next(i for i, (player_idx, _) in enumerate(sorted_positions) if player_idx == self.controlled_player) + 1
+        self._final_positions.append(position)
+        
+        # Track opponent cards for advantage calculation
+        opponent_cards = sum(cards for i, cards in enumerate(all_cards_left) if i != self.controlled_player)
+        self._total_opponent_cards += opponent_cards
+        
+        # Reward calculation
         reward = self._calculate_game_reward(self.controlled_player)
-        if reward > 0:
+        
+        # Track wins/losses based on whether controlled player won
+        if winner_player == self.controlled_player:
             self.games_won += 1
         else:
-            cards_left = np.sum(self.env.hands[self.controlled_player])
-            self.total_cards_when_losing += cards_left
+            # Only count cards when losing (not when winning)
+            self.total_cards_when_losing += controlled_cards
             self.losses_count += 1
+            
         return float(reward)
 
     def _advance_or_reset_game(self) -> Tuple[bool, Optional[Dict[str, Any]]]:
@@ -310,5 +462,10 @@ class BigTwoRLWrapper(gym.Env):
         self._cache_player = None
         self._cache_state_hash = None
         self._cache_turn_counter = 0
+        # Reset observation memory tracking per game
+        try:
+            self.obs_vectorizer.reset()
+        except Exception:
+            pass
         raw_obs = self.env.reset()
         return False, raw_obs

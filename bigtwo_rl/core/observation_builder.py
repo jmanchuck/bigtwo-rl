@@ -299,14 +299,27 @@ class ObservationVectorizer:
 
     def update_tracking(self, move, player, game_env):
         """Update tracking state when a move is played."""
-        if move is not None and hasattr(move, "__len__") and len(move) > 0:
-            # Update played cards
-            if isinstance(move, np.ndarray):
-                self._played_cards |= move
-                self._cards_by_player[player] |= move
+        # For numpy arrays, len(move) is 52 regardless of pass/non-pass; use np.any
+        is_numpy_array = isinstance(move, np.ndarray)
+        is_pass = False
+        if move is None:
+            is_pass = True
+        elif is_numpy_array:
+            is_pass = not np.any(move)
+        else:
+            # For list-like, empty list means pass
+            try:
+                is_pass = len(move) == 0
+            except Exception:
+                is_pass = False
+
+        # Update played cards for non-pass numpy array moves
+        if is_numpy_array and not is_pass:
+            self._played_cards |= move
+            self._cards_by_player[player] |= move
 
         # Update pass tracking
-        if move is None or (hasattr(move, "__len__") and len(move) == 0):
+        if is_pass:
             self._pass_counts[player] += 1
 
 
