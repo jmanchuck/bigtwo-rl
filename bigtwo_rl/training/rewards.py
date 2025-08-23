@@ -275,6 +275,17 @@ class StrategicReward(BaseReward):
         self.position_bonus = position_bonus
         self.efficiency_weight = efficiency_weight
 
+    def move_bonus(self, move_cards: List[int]) -> float:
+        # Reward for passing or complex moves
+        if len(move_cards) == 0:
+            return 0.05
+        elif len(move_cards) == 2:
+            return 0.2
+        elif len(move_cards) == 3 or len(move_cards) == 5:
+            return 0.5
+        return 0.0
+
+
     def game_reward(
         self,
         winner_player: int,
@@ -284,16 +295,11 @@ class StrategicReward(BaseReward):
     ) -> float:
         """Advanced reward encouraging strategic play patterns."""
         if player_idx == winner_player:
-            # Winner reward - higher if won efficiently (fewer total moves implied)
-            base_win = 2.0
+            base_win = 1.0
             # Bonus for potentially strategic wins (check if others have many cards)
-            if all_cards_left and max(all_cards_left) >= 8:
-                base_win += 0.5  # Bonus for dominant wins
+            if all_cards_left:
+                base_win += sum(all_cards_left) / 4.0  # Bonus for dominant wins
             return base_win
-
-        if all_cards_left is None:
-            # Fallback if ranking unavailable
-            return max(-1.5, -0.15 * cards_left)
 
         # Strategic loss evaluation
         # 1. Position bonus: Reward good relative performance
@@ -314,14 +320,9 @@ class StrategicReward(BaseReward):
         # 3. Efficiency penalty: Discourage being left with many cards
         efficiency_penalty = -self.efficiency_weight * min(cards_left / 13.0, 1.0)
 
-        # 4. Strategic play bonus: Extra reward for 2nd place with very few cards
-        strategic_bonus = 0
-        if player_rank == 1 and cards_left <= 2:  # 2nd place, very few cards
-            strategic_bonus = 0.4  # Suggests good strategic control
-
         total_reward = (
-            position_reward + control_reward + efficiency_penalty + strategic_bonus
-        )
+            position_reward + control_reward + efficiency_penalty)
+
         return max(-2.0, total_reward)  # Cap minimum penalty
 
     def episode_bonus(
