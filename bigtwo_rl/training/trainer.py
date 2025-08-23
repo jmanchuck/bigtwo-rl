@@ -46,7 +46,7 @@ class Trainer:
         reward_function: BaseReward,
         hyperparams: BaseConfig,
         observation_config: ObservationConfig,
-        eval_freq: int = 5000,
+        eval_freq: int = 500,
         controlled_player: int = 0,
         opponent_mixture: Optional[dict] = None,
         snapshot_dir: Optional[str] = None,
@@ -59,7 +59,7 @@ class Trainer:
         Args:
             reward_function: Reward function instance (e.g., DefaultReward())
             hyperparams: Hyperparameter configuration instance (e.g., DefaultConfig())
-            eval_freq: How often to evaluate during training
+            eval_freq: How often to evaluate during training - publishes metrics and saves models
             controlled_player: Which player the agent controls (0-3)
             opponent_mixture: Dict specifying opponent mix ratios
             snapshot_dir: Directory to save model snapshots
