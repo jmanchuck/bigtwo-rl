@@ -1,36 +1,36 @@
-"""Training infrastructure for Big Two agents."""
+"""Reward functions for Big Two RL training."""
 
-from .trainer import Trainer
-from .opponent_pool import OpponentPool
-from .callbacks import BigTwoMetricsCallback
-
-# Import all reward functions from the rewards module
-from .rewards import (
-    BaseReward,
-    MoveQualityReward,
+from .base_reward import BaseReward
+from .move_quality_reward import MoveQualityReward
+from .sparse_rewards import (
     DefaultReward,
     SparseReward,
     AggressivePenaltyReward,
     ProgressiveReward,
     RankingReward,
     ScoreMarginReward,
+)
+from .strategic_rewards import (
     StrategicReward,
     ComplexMoveReward,
 )
 
 __all__ = [
-    "Trainer",
-    "OpponentPool",
-    "BigTwoMetricsCallback",
-    # Reward functions
+    # Base class
     "BaseReward",
+    
+    # Move quality reward
     "MoveQualityReward",
+    
+    # Sparse/simple rewards
     "DefaultReward",
-    "SparseReward",
+    "SparseReward", 
     "AggressivePenaltyReward",
     "ProgressiveReward",
     "RankingReward",
     "ScoreMarginReward",
+    
+    # Strategic rewards
     "StrategicReward",
     "ComplexMoveReward",
 ]

@@ -374,11 +374,75 @@ class BigTwoRLWrapper(gym.Env):
             if isinstance(selected_move, np.ndarray):
                 # Convert boolean mask to list of card indices
                 move_cards = np.where(selected_move)[0].tolist()
-                move_bonus = self.reward_function.move_bonus(move_cards)
+                
+                # Build game context for move quality evaluation
+                game_context = self._build_game_context()
+                
+                # Call move_bonus with context (backward compatible)
+                import inspect
+                sig = inspect.signature(self.reward_function.move_bonus)
+                if 'game_context' in sig.parameters:
+                    move_bonus = self.reward_function.move_bonus(move_cards, game_context)
+                else:
+                    move_bonus = self.reward_function.move_bonus(move_cards)
+                
                 self.episode_manager.add_move_bonus(move_bonus)
 
                 # Track move types for metrics
                 self.episode_manager.track_move_type(move_cards)
+
+    def _build_game_context(self) -> Dict[str, Any]:
+        """Build game context dictionary for move quality evaluation.
+        
+        Returns:
+            Dict containing game state information for strategic evaluation
+        """
+        context = {}
+        
+        # Get controlled player's remaining hand
+        controlled_hand = self.env.hands[self.controlled_player]
+        remaining_hand = np.where(controlled_hand)[0].tolist()
+        context['remaining_hand'] = remaining_hand
+        
+        # Get opponent card counts
+        opponent_card_counts = []
+        for i in range(self.num_players):
+            if i != self.controlled_player:
+                card_count = int(np.sum(self.env.hands[i]))
+                opponent_card_counts.append(card_count)
+        context['opponent_card_counts'] = opponent_card_counts
+        
+        # Determine game phase based on card counts
+        min_hand_size = min([int(np.sum(self.env.hands[i])) for i in range(self.num_players)])
+        max_hand_size = max([int(np.sum(self.env.hands[i])) for i in range(self.num_players)])
+        
+        if max_hand_size > 10:
+            game_phase = 'OPENING'
+        elif min_hand_size <= 3:
+            game_phase = 'ENDGAME'
+        else:
+            game_phase = 'MIDGAME'
+        context['game_phase'] = game_phase
+        
+        # Get last play information
+        last_play_strength = 1  # Default single card strength
+        if self.env.last_play is not None:
+            last_play_cards = np.where(self.env.last_play[0])[0]
+            last_play_strength = len(last_play_cards)
+        context['last_play_strength'] = last_play_strength
+        
+        # Get current turn and position info
+        context['current_player'] = self.env.current_player
+        context['controlled_player'] = self.controlled_player
+        context['passes_in_row'] = self.env.passes_in_row
+        
+        # Get game progress metrics
+        total_cards_dealt = self.num_players * 13  # Standard 52 cards, 4 players
+        total_cards_remaining = sum([int(np.sum(self.env.hands[i])) for i in range(self.num_players)])
+        cards_played_total = total_cards_dealt - total_cards_remaining
+        context['cards_played_ratio'] = cards_played_total / total_cards_dealt if total_cards_dealt > 0 else 0
+        
+        return context
 
     def get_action_mask(self) -> np.ndarray:
         """Return boolean mask for legal actions."""

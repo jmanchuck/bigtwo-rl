@@ -56,7 +56,7 @@ class AggressiveConfig(BaseConfig):
     learning_rate: float = 1e-3
     n_steps: int = 256
     batch_size: int = 32
-    n_epochs: int = 5
+    n_epochs: int = 10
     gamma: float = 0.95
     gae_lambda: float = 0.9
     clip_range: float = 0.3
