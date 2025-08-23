@@ -2,7 +2,7 @@
 """Evaluate trained agent against baselines."""
 
 from typing import Dict, Any, List, Optional
-from ..agents import RandomAgent, GreedyAgent, PPOAgent, BaseAgent
+from ..agents import GreedyAgent, PPOAgent, BaseAgent
 from .tournament import play_four_player_series
 
 
@@ -20,9 +20,7 @@ class Evaluator:
         self.num_games = num_games
         self.n_processes = n_processes
 
-    def evaluate_agent(
-        self, agent: BaseAgent, baselines: bool = True
-    ) -> Dict[str, Any]:
+    def evaluate_agent(self, agent: BaseAgent, baselines: bool = True) -> Dict[str, Any]:
         """
         Evaluate an agent in 4-player series against three opponents.
 
@@ -35,23 +33,19 @@ class Evaluator:
         """
         # Always construct a 4-player table: [agent] + 3 opponents
         if not baselines:
-            raise ValueError(
-                "evaluate_agent requires baselines=True to auto-generate three opponents"
-            )
+            raise ValueError("evaluate_agent requires baselines=True to auto-generate three opponents")
 
         # Create a mix of random/greedy opponents (2 Random, 1 Greedy by default)
         opponents = [
-            RandomAgent("Random-1"),
-            RandomAgent("Random-2"),
+            GreedyAgent("Greedy-1"),
+            GreedyAgent("Greedy-2"),
             GreedyAgent("Greedy"),
         ]
 
         table_agents = [agent] + opponents
         return play_four_player_series(table_agents, self.num_games, self.n_processes)
 
-    def evaluate_model(
-        self, model_path: str, model_name: Optional[str] = None
-    ) -> Dict[str, Any]:
+    def evaluate_model(self, model_path: str, model_name: Optional[str] = None) -> Dict[str, Any]:
         """
         Evaluate a trained PPO model against baselines.
 
@@ -68,9 +62,7 @@ class Evaluator:
         agent = PPOAgent(model_path=model_path, name=model_name)
         return self.evaluate_agent(agent)
 
-    def compare_models(
-        self, model_paths: List[str], model_names: Optional[List[str]] = None
-    ) -> Dict[str, Any]:
+    def compare_models(self, model_paths: List[str], model_names: Optional[List[str]] = None) -> Dict[str, Any]:
         """
         Compare multiple trained models against each other and baselines.
 
@@ -91,14 +83,12 @@ class Evaluator:
         results = {}
         for agent in agents:
             opponents = [
-                RandomAgent("Random-1"),
-                RandomAgent("Random-2"),
+                GreedyAgent("Greedy-1"),
+                GreedyAgent("Greedy-2"),
                 GreedyAgent("Greedy"),
             ]
             table_agents = [agent] + opponents
-            results[agent.name] = play_four_player_series(
-                table_agents, self.num_games, self.n_processes
-            )
+            results[agent.name] = play_four_player_series(table_agents, self.num_games, self.n_processes)
         return {"per_agent_series": results}
 
 
@@ -106,8 +96,8 @@ def evaluate_agent(model_path: str, num_games: int = 100) -> Dict[str, Any]:
     """Evaluate a PPO model in a 4-player series against three baselines."""
     agent = PPOAgent(model_path, name=f"PPO-{model_path.split('/')[-1]}")
     opponents = [
-        RandomAgent("Random-1"),
-        RandomAgent("Random-2"),
+        GreedyAgent("Greedy-1"),
+        GreedyAgent("Greedy-2"),
         GreedyAgent("Greedy"),
     ]
     table_agents = [agent] + opponents
