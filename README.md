@@ -269,11 +269,36 @@ trainer = Trainer(
 
 Understanding what each setting means in Big Two terms:
 
-- **`learning_rate`**: How fast the AI learns (3e-4 = balanced, 1e-3 = aggressive)
-- **`games_per_episode`**: How many complete Big Two games before getting feedback (5 = default)
-- **`n_steps`**: Individual card plays before updating AI (512 = ~10-25 games worth)
-- **`n_envs`**: Parallel game tables (8 = like 8 different tables at once)
+#### Core RL Parameters
+- **`learning_rate`** (1e-4 to 1e-3): How quickly the neural network updates its weights
+  - Higher = faster learning but less stable convergence
+  - Lower = slower but more stable training
+- **`gamma`** (0.9 to 0.995): Discount factor for future rewards 
+  - High values (0.99+) = agent values long-term strategy (winning games)
+  - Low values (0.9) = agent focuses on immediate rewards (individual moves)
+- **`clip_range`** (0.1 to 0.3): PPO clipping to prevent destructive updates
+  - Higher = allows bigger policy changes, more aggressive learning
+- **`gae_lambda`** (0.85 to 0.98): Balances bias vs variance in advantage estimates
+
+#### Data Collection  
+- **`n_steps`** (128 to 1024): Individual card plays before updating AI (512 = ~10-25 games worth)
+- **`n_envs`** (2 to 16): Parallel game tables (like 8 different tables at once)
+- **`batch_size`** (16 to 128): Card plays reviewed together when updating strategy
+- **`n_epochs`** (3 to 15): How many times to replay the same moves for learning
+- **`games_per_episode`** (2 to 10): Complete Big Two games before getting feedback (5 = default)
+
+#### Training Volume
 - **`total_timesteps`**: Total card plays for entire training (25k ≈ 835 games)
+
+#### Configuration Profiles
+- **`DefaultConfig`**: Balanced training (3 min/25k timesteps)
+  - Moderate learning_rate (3e-4), stable gamma (0.99), 5 games/episode
+- **`AggressiveConfig`**: Faster, less stable (2 min/25k timesteps) 
+  - High learning_rate (1e-3), lower gamma (0.95), 3 games/episode
+- **`ConservativeConfig`**: Stable, slower training (6 min/25k timesteps)
+  - Low learning_rate (1e-4), high gamma (0.995), 10 games/episode
+- **`FastExperimentalConfig`**: Quick experiments (1 min/25k timesteps)
+  - High learning_rate (5e-4), low gamma (0.9), 2 games/episode
 
 ### Reward Function Guide
 

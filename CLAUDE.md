@@ -251,52 +251,77 @@ Understanding hyperparameters in terms of actual Big Two gameplay:
 3. **Episode**: Multiple games grouped together (default: 5-10 games)
 4. **Training Run**: Many episodes until total_timesteps reached
 
-### Key Hyperparameters in Big Two Terms
+### Hyperparameter Categories & Explanations
 
-**Episode Structure:**
-- `games_per_episode` (5): How many complete Big Two games before the AI gets feedback
-  - Why multiple games? Card dealing is random, so one game isn't enough signal
-  - Agent only gets reward at episode end (after all 5 games)
+**Core RL Parameters:**
+- `learning_rate` (1e-4 to 1e-3): How quickly the neural network updates its weights
+  - Higher = faster learning but less stable convergence
+  - Lower = slower but more stable training
+- `gamma` (0.9 to 0.995): Discount factor for future rewards
+  - High values (0.99+) = agent values long-term strategy 
+  - Low values (0.9) = agent focuses on immediate rewards
+  - In Big Two: higher gamma encourages winning games vs just playing cards
+- `gae_lambda` (0.85 to 0.98): Generalized Advantage Estimation parameter for variance/bias tradeoff
+  - High values = lower bias but higher variance in advantage estimates
+  - Works with gamma to balance short-term vs long-term learning
+- `clip_range` (0.1 to 0.3): PPO clipping parameter to prevent destructive policy updates
+  - Higher = allows bigger policy changes (more aggressive updates)
+  - Lower = smaller, safer updates
 
 **Data Collection:**
-- `n_steps` (512): How many individual card plays to collect before updating the AI
-  - In Big Two terms: ~10-25 complete games worth of moves (games are ~20-40 moves)
-- `n_envs` (8): How many parallel Big Two tables running simultaneously
-  - Like having 8 different card tables generating training data at once
+- `n_steps` (128 to 1024): Experience buffer size per environment before policy update
+  - In Big Two terms: ~3-30 complete games worth of moves (games are ~20-40 moves)
+  - Higher = more data per update, more stable but slower learning
+- `n_envs` (2 to 16): How many parallel Big Two tables running simultaneously
+  - Like having multiple different card tables generating training data at once
+  - Derived from CPU count with different ratios per config
+- `batch_size` (16 to 128): How many individual moves to review together when updating strategy
+  - Should be ≤ `n_steps * n_envs` (total collected experience)
+  - Larger batches = more stable gradients but more memory usage
+- `n_epochs` (3 to 15): How many times to review the same batch of moves
+  - Like replaying the same hands multiple times to learn from them
+  - Higher = extract more learning from same data but risk overfitting
 
-**Learning Updates:**
-- `batch_size` (64): How many individual moves to review together when updating strategy
-- `n_epochs` (10): How many times to review the same batch of moves
-  - Like replaying the same hands 10 times to learn from them
+**Game-Specific:**
+- `games_per_episode` (2 to 10): How many complete Big Two games before the AI gets feedback
+  - Why multiple games? Card dealing is random, so one game isn't enough signal
+  - Agent only gets reward at episode end (after all games)
+
+### Parameter Relationships & Dependencies
+
+**Derived Parameters:**
+- `n_envs`: All configs derive from CPU count with different formulas
+  - Default/Conservative: `cpu_count // 2` 
+  - Aggressive: `cpu_count // 3`
+  - FastExperimental: Uses more CPUs for speed
+
+**Critical Relationships:**
+- `batch_size` ≤ `n_steps * n_envs`: Batch can't be larger than total collected data
+- `learning_rate` × `clip_range`: Related aggression levels (both high in aggressive config)
+- `gamma` × `gae_lambda`: Both affect temporal credit assignment at different stages
 
 **Training Volume:**
 - `total_timesteps` (25,000): Total individual card plays for entire training
   - At ~30 moves/game and 5 games/episode = ~150 moves/episode
   - So 25k timesteps ≈ 167 episodes ≈ 835 total games
 
-**Example Training Session (default settings):**
-- Train for 25,000 card plays total
-- Collect 512 moves at a time from 8 parallel tables
-- Every 512 moves, update the AI by reviewing batches of 64 moves, 10 times each
-- Each training episode = 5 complete Big Two games before reward
-- **Result**: ~835 total games played during training (why 30 seconds feels short!)
+### Configuration Profiles
 
+**DefaultConfig**: Balanced training for general use
+- Moderate learning rate (3e-4), stable gamma (0.99)
+- 512 steps, 64 batch size, 10 epochs, 5 games/episode
 
-### Recommended hyperparams to try out
+**AggressiveConfig**: Faster, less stable training
+- High learning rate (1e-3), lower gamma (0.95), high clip_range (0.3)
+- 256 steps, 32 batch size, 5 epochs, 3 games/episode
 
-  n_steps Reduction:
-  - Target: n_steps = ~150 (3-5 games worth)
-  - Allows learning updates after every few complete games
-  - Maintains some stability while increasing feedback frequency
+**ConservativeConfig**: Stable, slower training
+- Low learning rate (1e-4), high gamma (0.995), low clip_range (0.1)
+- 1024 steps, 128 batch size, 15 epochs, 10 games/episode
 
-  Batch Size Heuristics:
-  - batch_size = 32-48 moves (~1-2 complete games)
-  - Ensures each batch contains coherent game sequences
-  - Avoids mixing early-game and late-game moves randomly
-
-  Game-Aware Training:
-  - games_per_episode = 3  # Smaller episodes, more frequent rewards
-  - n_steps = 180         # ~6 games before update  
+**FastExperimentalConfig**: Quick testing and iteration
+- High learning rate (5e-4), low gamma (0.9)
+- 128 steps, 16 batch size, 3 epochs, 2 games/episode  
 
 ## Multiprocessing Support
 
