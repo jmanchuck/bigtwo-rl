@@ -2,6 +2,7 @@
 
 from .base_reward import BaseReward
 from .move_quality_reward import MoveQualityReward
+from .move_quality_reward_optimized import MoveQualityRewardOptimized
 from .sparse_rewards import (
     DefaultReward,
     SparseReward,
@@ -14,13 +15,15 @@ from .strategic_rewards import (
     StrategicReward,
     ComplexMoveReward,
 )
+from .zero_sum_reward import ZeroSumReward
 
 __all__ = [
     # Base class
     "BaseReward",
     
-    # Move quality reward
+    # Move quality rewards
     "MoveQualityReward",
+    "MoveQualityRewardOptimized",
     
     # Sparse/simple rewards
     "DefaultReward",
@@ -33,4 +36,7 @@ __all__ = [
     # Strategic rewards
     "StrategicReward",
     "ComplexMoveReward",
+    
+    # Zero-sum reward
+    "ZeroSumReward",
 ]
