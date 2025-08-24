@@ -91,12 +91,7 @@ class Trainer:
         self.model_save_dir = model_save_dir
         self.tensorboard_log_dir = tensorboard_log_dir
 
-        if verbose >= 1:
-            print("🚀 Enhanced Trainer initialized with multi-player algorithms:")
-            print("   ✅ MultiPlayerPPO with delayed reward assignment")
-            print("   ✅ Multi-player GAE calculation")
-            print("   ✅ Turn-based awareness")
-            print("   ✅ Reference implementation compatibility")
+        # Trainer initialized with multi-player algorithms
     
     def _create_model_instance(self, env, model_name: str, verbose: bool) -> MultiPlayerPPO:
         """Create PPO model instance.
@@ -120,16 +115,7 @@ class Trainer:
             tensorboard_log=tb_log,
         )
 
-        if verbose:
-            print("🧠 Created MultiPlayerPPO with enhanced algorithms")
-            if hasattr(model.rollout_buffer, "get_statistics"):
-                print(
-                    f"   📊 Enhanced buffer: {type(model.rollout_buffer).__name__}"
-                )
-            if model.multi_player_callback is not None:
-                print(
-                    f"   🔄 GAE callback: {type(model.multi_player_callback).__name__}"
-                )
+        # MultiPlayerPPO created with enhanced algorithms
         return model
 
     def _make_env(self):
@@ -205,17 +191,7 @@ class Trainer:
         Maintains the legacy public interface while using multi-player enhancements
         by default.
         """
-        if self.verbose >= 1:
-            print(
-                f"\n🎯 Starting {'enhanced' if self.enable_multi_player_enhancements else 'standard'} training"
-            )
-            print(f"   💫 Total timesteps: {total_timesteps:,}")
-            if self.enable_multi_player_enhancements:
-                print("   🎮 Multi-player algorithms: ENABLED")
-                print("   🔄 Delayed reward assignment: ACTIVE")
-                print("   📊 Multi-player GAE: ACTIVE")
-            else:
-                print("   🔧 Standard algorithms: ACTIVE")
+        # Training started
 
         # Build environments
         env, eval_env = self._setup_training_environments()
@@ -240,10 +216,7 @@ class Trainer:
         # Post-train stats
         if self.enable_multi_player_enhancements and hasattr(model, "get_multi_player_statistics"):
             stats = model.get_multi_player_statistics()
-            if self.verbose >= 1 and stats:
-                print("\n📈 Enhanced Training Statistics:")
-                for key, value in stats.items():
-                    print(f"   {key}: {value}")
+            # Enhanced training statistics available in stats
 
         # Expose model on trainer
         self.model = model
@@ -314,11 +287,7 @@ class Trainer:
             verbose=verbose
         )
         
-        if verbose >= 1:
-            print("🎯 Created reference-compatible Trainer")
-            print("   📋 Using ReferenceExactConfig hyperparameters")
-            print("   🔄 All multi-player enhancements enabled")
-            print("   🎮 Optimized for Big Two performance")
+        # Reference-compatible trainer created
         
         return trainer
     
@@ -373,8 +342,7 @@ class Trainer:
         with open(filepath, 'w') as f:
             json.dump(config, f, indent=2, default=str)
         
-        if self.verbose >= 1:
-            print(f"💾 Training configuration saved to: {filepath}")
+        # Training configuration saved
             
         return str(filepath)
 
@@ -393,5 +361,4 @@ class Trainer:
             }
             ModelMetadata.save_metadata(models_dir, test_env.obs_config, additional_info)
 
-        if self.verbose >= 1:
-            print(f"Training completed! Model saved in {models_dir}")
+        # Training completed, model saved

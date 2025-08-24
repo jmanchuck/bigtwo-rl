@@ -121,9 +121,7 @@ class MultiPlayerPPO(PPO):
             # Log enhanced statistics
             if hasattr(self.rollout_buffer, 'get_statistics'):
                 buffer_stats = self.rollout_buffer.get_statistics()
-                if self.verbose >= 1:
-                    print(f"📊 Buffer stats: {buffer_stats['games_completed']} games, "
-                          f"{buffer_stats['delayed_rewards_assigned']} delayed rewards")
+                # Buffer statistics available
         
         # Run standard PPO training
         super().train()
@@ -214,9 +212,7 @@ class MultiPlayerPPO(PPO):
         with open(metadata_path, 'w') as f:
             json.dump(metadata, f, indent=2)
         
-        if self.verbose >= 1:
-            print(f"💾 MultiPlayerPPO model saved to {path}")
-            print(f"📊 Metadata saved to {metadata_path}")
+        # MultiPlayerPPO model and metadata saved
     
     @classmethod
     def load(cls, path, env=None, device="auto", custom_objects=None, print_system_info=False, 
@@ -234,11 +230,9 @@ class MultiPlayerPPO(PPO):
             with open(metadata_path, 'r') as f:
                 metadata = json.load(f)
             
-            if model.verbose >= 1:
-                print(f"📊 MultiPlayerPPO metadata loaded from {metadata_path}")
-                print(f"   Buffer class: {metadata.get('buffer_class')}")
+            # MultiPlayerPPO metadata loaded
         except FileNotFoundError:
-            if model.verbose >= 1:
-                print("⚠️  No metadata file found, using default settings")
+            # No metadata file found, using default settings
+            pass
         
         return model

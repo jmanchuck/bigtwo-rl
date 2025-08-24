@@ -41,9 +41,7 @@ class MultiPlayerGAECallback(BaseCallback):
         rollout_buffer = self.model.rollout_buffer
         
         if hasattr(rollout_buffer, 'compute_multi_player_gae'):
-            if self.verbose >= 1:
-                print("🔄 Recalculating GAE for multi-player turn-based game")
-            
+            # Recalculating GAE for multi-player turn-based game
             # Use the buffer's multi-player GAE method
             rollout_buffer.compute_multi_player_gae(
                 gamma=self.model.gamma,
@@ -56,18 +54,17 @@ class MultiPlayerGAECallback(BaseCallback):
                 # Log some statistics about the recalculation
                 advantages = rollout_buffer.advantages
                 returns = rollout_buffer.returns
-                print(f"   Advantages: mean={advantages.mean():.4f}, std={advantages.std():.4f}")
-                print(f"   Returns: mean={returns.mean():.4f}, std={returns.std():.4f}")
+                # GAE recalculation completed
                 
-        elif self.verbose >= 1:
-            print("⚠️  MultiPlayerGAECallback: Buffer doesn't support multi-player GAE")
+        else:
+            # Buffer doesn't support multi-player GAE
+            pass
             
         return True
     
     def _on_training_end(self) -> None:
         """Called at the end of training."""
-        if self.verbose >= 1:
-            print(f"🏁 Multi-player GAE recalculations performed: {self.gae_recalculations}")
+        # Multi-player GAE recalculations completed
     
     def get_statistics(self) -> dict:
         """Get callback statistics for monitoring."""

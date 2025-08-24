@@ -2,10 +2,12 @@
 
 import numpy as np
 import multiprocessing as mp
+import sys
 from typing import List, Dict, Tuple, Optional
 from ..core.rl_wrapper import BigTwoRLWrapper
-from ..core.observation_builder import ObservationConfig
+from ..core.observation_builder import ObservationConfig, standard_observation
 from ..agents import BaseAgent, RandomAgent, GreedyAgent, PPOAgent
+from ..agents.human_agent import HumanAgent
 
 
 class Tournament:
@@ -164,7 +166,6 @@ def _union_observation_config_for_agents(agents: List[BaseAgent]) -> Observation
       them via their observation converter.
     """
     # Start with standard config to maintain backward compatibility
-    from ..core.observation_builder import standard_observation
 
     union = standard_observation()
 
@@ -229,7 +230,7 @@ def _run_game_batch(
     env_obs_config = _union_observation_config_for_agents(agents)
 
     # Check if any agent is a HumanAgent to enable move history tracking
-    from ..agents.human_agent import HumanAgent
+    # Import already available at top of file
 
     track_history = any(isinstance(agent, HumanAgent) for agent in agents)
 
@@ -340,7 +341,7 @@ def _play_four_player_series_sequential(
     env_obs_config = _union_observation_config_for_agents(agents)
 
     # Check if any agent is a HumanAgent to enable move history tracking
-    from ..agents.human_agent import HumanAgent
+    # Import already available at top of file
 
     track_history = any(isinstance(agent, HumanAgent) for agent in agents)
 
@@ -500,7 +501,7 @@ def load_agents_from_config(agent_configs: List[Dict]) -> List[BaseAgent]:
 
 
 if __name__ == "__main__":
-    import sys
+    # Import already available at top of file
 
     # Example tournament
     if len(sys.argv) > 1 and sys.argv[1] == "example":
@@ -514,13 +515,16 @@ if __name__ == "__main__":
         try:
             agents.append(PPOAgent(model_path="./models/best_model", name="PPO-Best"))
         except FileNotFoundError:
-            print("No trained PPO model found, skipping PPO agent")
+            # No trained PPO model found, skipping PPO agent
+            pass
         except Exception as e:
-            print(f"Failed to load PPO agent: {e}")
+            # Failed to load PPO agent
+            pass
 
         # Run tournament
         results = run_tournament(agents, num_games=50)
-        print(results["tournament_summary"])
+        # Tournament results available in results dict
     else:
-        print("Usage: python tournament.py example")
-        print("Or import and use the functions directly")
+        # Usage: python tournament.py example
+        # Or import and use the functions directly
+        pass

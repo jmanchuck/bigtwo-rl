@@ -197,26 +197,7 @@ class SelfPlayPPOCallback(BaseCallback):
 
     def _on_training_end(self) -> None:
         """Called at the end of training."""
-        if self.verbose >= 1:
-            print("\n" + "=" * 50)
-            print("Self-Play Training Summary:")
-            print(f"Episodes processed: {self.total_episodes_processed}")
-            print(
-                f"Total multi-player experiences collected: {self.total_multi_player_experiences}"
-            )
-            print("Experiences per player:")
-            for i in range(4):
-                print(f"  Player {i}: {self.experiences_per_player[i]}")
-
-            if self.total_episodes_processed > 0:
-                avg_exp = (
-                    self.total_multi_player_experiences / self.total_episodes_processed
-                )
-                print(f"Average experiences per episode: {avg_exp:.1f}")
-                print(
-                    f"Training data multiplier: {avg_exp / 10:.1f}x (compared to single-player)"
-                )
-            print("=" * 50 + "\n")
+        # Self-play training summary available in class attributes
 
 
 class SimpleSelfPlayCallback(BaseCallback):
@@ -238,25 +219,16 @@ class SimpleSelfPlayCallback(BaseCallback):
 
     def _on_training_start(self) -> None:
         """Called at the start of training. Inject model reference into environments."""
-        if self.verbose >= 1:
-            print(
-                f"Self-play callback: Training start - env type: {type(self.training_env)}"
-            )
+        # Training started
 
         # Handle different VecEnv types
         if hasattr(self.training_env, "envs"):
             # DummyVecEnv case - direct access to environments
-            if self.verbose >= 1:
-                print(
-                    f"Self-play callback: Found {len(self.training_env.envs)} environments in {type(self.training_env)}"
-                )
+            # Found environments
 
             for i, env in enumerate(self.training_env.envs):
                 target_env = self._get_base_env(env)
-                if self.verbose >= 1:
-                    print(
-                        f"Self-play callback: Env {i} - target type: {type(target_env)}, has method: {hasattr(target_env, 'set_model_reference')}"
-                    )
+                # Environment inspection
 
                 if hasattr(target_env, "set_model_reference"):
                     target_env.set_model_reference(self.model)
@@ -267,32 +239,20 @@ class SimpleSelfPlayCallback(BaseCallback):
                 # This won't work well for model objects due to pickling issues
                 self.training_env.env_method("set_model_reference", self.model)
                 self.model_injected = True
-                if self.verbose >= 1:
-                    print(
-                        f"Self-play callback: Model reference injected via env_method"
-                    )
+                # Model reference injected via env_method
             except Exception as e:
-                if self.verbose >= 1:
-                    print(f"Self-play callback: env_method injection failed: {e}")
-                    print(
-                        "Model sharing not supported with SubprocVecEnv - consider using DummyVecEnv"
-                    )
+                # env_method injection failed
+                pass
         else:
             # Single env case
             target_env = self._get_base_env(self.training_env)
-            if self.verbose >= 1:
-                print(
-                    f"Self-play callback: Single env - target type: {type(target_env)}, has method: {hasattr(target_env, 'set_model_reference')}"
-                )
+            # Single environment inspection
 
             if hasattr(target_env, "set_model_reference"):
                 target_env.set_model_reference(self.model)
                 self.model_injected = True
 
-        if self.verbose >= 1:
-            print(
-                f"Self-play callback: Model reference injected into environments: {self.model_injected}"
-            )
+        # Model reference injection completed
 
     def _get_base_env(self, env):
         """Get the base BigTwoRLWrapper from potentially wrapped environment."""
@@ -344,16 +304,4 @@ class SimpleSelfPlayCallback(BaseCallback):
 
     def _on_training_end(self) -> None:
         """Called at the end of training. Print summary."""
-        if self.verbose >= 1:
-            print("\n" + "=" * 50)
-            print("Self-Play Training Summary:")
-            print(f"Model injection successful: {self.model_injected}")
-            print(f"Multi-player episodes completed: {self.multi_player_episodes}")
-            print(f"Total experiences collected: {self.total_experiences_collected}")
-            if self.multi_player_episodes > 0:
-                avg_exp = self.total_experiences_collected / self.multi_player_episodes
-                print(f"Average experiences per episode: {avg_exp:.1f}")
-                print(
-                    f"Training data multiplier: ~{avg_exp / 10:.1f}x compared to single-player"
-                )
-            print("=" * 50 + "\n")
+        # Self-play training summary available in class attributes

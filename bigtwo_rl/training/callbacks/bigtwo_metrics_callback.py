@@ -1,5 +1,6 @@
 """Training callbacks for Big Two agents."""
 
+import traceback
 from typing import Dict, Any
 from stable_baselines3.common.callbacks import BaseCallback
 
@@ -87,11 +88,9 @@ class BigTwoMetricsCallback(BaseCallback):
                 for metric_name, value in aggregated.items():
                     self.logger.record(metric_name, value)
             else:
-                if self.verbose >= 1:
-                    print("⚠️  No Big Two metrics found in episode info")
+                # No Big Two metrics found in episode info
+                pass
 
         except Exception as e:
-            print(f"❌ Failed to log Big Two metrics: {e}")
-            import traceback
-
+            # Failed to log Big Two metrics
             traceback.print_exc()

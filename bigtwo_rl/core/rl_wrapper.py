@@ -504,18 +504,8 @@ class BigTwoRLWrapper(gym.Env):
     def render(self, mode: str = "human") -> Optional[np.ndarray]:
         """Render environment (basic game state info)."""
         if mode == "human":
-            print("True Self-Play Big Two Game State:")
-            print(f"Current Player: {self.game.current_player}")
-            print(f"Games Completed: {self.games_completed}/{self.games_per_episode}")
-            print(f"Game Done: {self.game.done}")
-            if self.game.last_play is not None:
-                cards_played = np.where(self.game.last_play[0])[0]
-                print(
-                    f"Last Play: Player {self.game.last_play[1]} played cards {cards_played}"
-                )
-            for i in range(4):
-                cards_count = np.sum(self.game.hands[i])
-                print(f"Player {i}: {cards_count} cards")
+            # Game state info available in self.game attributes
+            pass
         return None
 
     def close(self) -> None:
