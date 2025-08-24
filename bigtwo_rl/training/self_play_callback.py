@@ -1,7 +1,18 @@
-"""Self-Play PPO Callback for Multi-Player Experience Integration.
+"""Self-Play PPO Callback utilities.
 
-This callback processes the multi-player experiences collected from true self-play
-and injects them into PPO's training buffer to achieve 4x training data efficiency.
+Two callbacks are defined:
+
+1) `SimpleSelfPlayCallback` (used by the trainer):
+   - Injects the live PPO model reference into each env so the same network
+     can act for all four players (true self-play) within a `DummyVecEnv`.
+   - Logs counts of multi-player experiences exposed by the env via
+     `infos["multi_player_experiences"]`. It does not inject experiences into
+     PPO's rollout buffer; collection remains standard SB3.
+
+2) `SelfPlayPPOCallback` (experimental, not wired in):
+   - Sketches how to post-process `multi_player_experiences` and add them to
+     PPO's buffer to get >1x data efficiency. This is not fully implemented
+     (no value/logprob reconstruction); kept for future work.
 """
 
 import numpy as np
@@ -47,7 +58,7 @@ class SelfPlayPPOCallback(BaseCallback):
         # Check if any environments completed episodes with multi-player experiences
         for env_idx in range(self.training_env.num_envs):
             # Get info from the most recent step
-            if hasattr(self.locals, "infos") and len(self.locals["infos"]) > env_idx:
+            if "infos" in self.locals and len(self.locals["infos"]) > env_idx:
                 info = self.locals["infos"][env_idx]
 
                 # Check if this environment completed an episode with multi-player experiences
@@ -302,7 +313,7 @@ class SimpleSelfPlayCallback(BaseCallback):
     def _on_step(self) -> bool:
         """Monitor multi-player experience collection."""
         # Check for completed episodes with multi-player experiences
-        if hasattr(self.locals, "infos"):
+        if "infos" in self.locals:
             for info in self.locals["infos"]:
                 if (
                     info.get("episode_complete", False)

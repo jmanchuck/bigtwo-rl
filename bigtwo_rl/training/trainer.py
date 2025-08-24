@@ -12,8 +12,7 @@ from ..core.observation_builder import ObservationConfig
 from .hyperparams import BaseConfig
 from .rewards import BaseReward
 from .callbacks import BigTwoMetricsCallback
-from .multi_player_buffer import MultiPlayerExperienceBuffer
-from .self_play_callback import SimpleSelfPlayCallback
+from .self_play_callback import SimpleSelfPlayCallback, SelfPlayPPOCallback
 
 
 class ConfigurableBigTwoWrapper(BigTwoRLWrapper):
@@ -73,9 +72,6 @@ class Trainer:
         self.snapshot_every_steps = snapshot_every_steps
         self.observation_config = observation_config
         self.enable_bigtwo_metrics = enable_bigtwo_metrics
-
-        # Self-play specific components (always enabled now)
-        self.multi_player_buffer = MultiPlayerExperienceBuffer()
 
     def _make_env(self):
         """Create environment instance with configuration."""
@@ -221,7 +217,7 @@ class Trainer:
             callbacks.append(BigTwoMetricsCallback(verbose=0))
 
         # Add self-play callback to monitor multi-player experience collection
-        callbacks.append(SimpleSelfPlayCallback(verbose=1))
+        callbacks.append(SelfPlayPPOCallback(verbose=1))
 
         # Add snapshot callback if configured
         if self.snapshot_every_steps is not None and self.snapshot_every_steps > 0:
