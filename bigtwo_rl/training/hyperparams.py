@@ -107,3 +107,43 @@ class OptimizedConfig(BaseConfig):
     clip_range: float = 0.2  # Standard PPO clipping
     games_per_episode: int = 64  # Large batch size like theirs
     n_envs: int = min(8, max(4, (os.cpu_count() or 8) // 2))
+
+
+@dataclass(frozen=False)
+class ReferenceExactConfig(BaseConfig):
+    """Exact hyperparameter match to reference implementation.
+    
+    This configuration replicates the exact settings from the reference
+    Big Two PPO implementation to maximize compatibility and performance.
+    Based on analysis of mainBig2PPOSimulation.py and network architecture.
+    """
+    
+    learning_rate: float = 2.5e-4      # Exact match to reference (0.00025)
+    n_steps: int = 20                  # Match reference batch collection
+    batch_size: int = 64               # Match reference mini-batch size  
+    n_epochs: int = 5                  # Match reference optimization epochs
+    gamma: float = 0.995               # Exact match to reference
+    gae_lambda: float = 0.95           # Exact match to reference
+    clip_range: float = 0.2            # Match reference PPO clipping
+    games_per_episode: int = 1         # Single game per episode like reference
+    
+    # Critical: match reference's vectorized environment setup
+    n_envs: int = 16                   # Reference uses multiple parallel games
+    
+    def __post_init__(self):
+        """Post-initialization to ensure proper batch structure."""
+        # Ensure batch_size works with n_envs * n_steps
+        # Reference uses mini-batches within the total collection
+        total_batch = self.n_envs * self.n_steps  # 16 * 20 = 320
+        
+        # Adjust batch_size to be compatible
+        if self.batch_size > total_batch:
+            self.batch_size = total_batch // 4  # Use quarter of total as mini-batch
+        
+        print(f"ReferenceExactConfig initialized:")
+        print(f"  Total collection: {total_batch} transitions")
+        print(f"  Mini-batch size: {self.batch_size}")
+        print(f"  Training epochs: {self.n_epochs}")
+        print(f"  Games per episode: {self.games_per_episode}")
+        print(f"  Learning rate: {self.learning_rate}")
+        print(f"  Gamma: {self.gamma}, GAE Lambda: {self.gae_lambda}")
