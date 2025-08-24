@@ -4,7 +4,6 @@ from .base_agent import BaseAgent
 from .random_agent import RandomAgent
 from .greedy_agent import GreedyAgent
 from .ppo_agent import PPOAgent
-from .balanced_agent import BalancedRandomAgent, MoveTypeBalancedWrapper
 from .human_agent import HumanAgent
 import os
 from typing import Optional
@@ -27,11 +26,7 @@ def load_ppo_agent(model_path: str, name: Optional[str] = None) -> PPOAgent:
     """
     if name is None:
         # Extract name from model path - use parent directory name
-        name = (
-            os.path.basename(os.path.dirname(model_path))
-            if "/" in model_path
-            else "PPO"
-        )
+        name = os.path.basename(os.path.dirname(model_path)) if "/" in model_path else "PPO"
 
     return PPOAgent(model_path=model_path, name=name)
 
@@ -41,8 +36,6 @@ __all__ = [
     "RandomAgent",
     "GreedyAgent",
     "PPOAgent",
-    "BalancedRandomAgent",
-    "MoveTypeBalancedWrapper",
     "HumanAgent",
     "load_ppo_agent",
 ]

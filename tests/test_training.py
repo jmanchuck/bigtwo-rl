@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Quick test of training pipeline."""
 
 from bigtwo_rl.training import Trainer

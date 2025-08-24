@@ -43,7 +43,8 @@ class BigTwoRLWrapper(gym.Env):
     def __init__(
         self,
         observation_config: ObservationConfig,
-        reward_function,  # BaseReward instance (import avoided to prevent circular import)
+        reward_function: Optional[Any] = None,  # BaseReward instance (optional to avoid circular import)
+        num_players: int = 4,
         games_per_episode: int = 10,
         track_move_history: bool = False,
     ):
@@ -57,7 +58,11 @@ class BigTwoRLWrapper(gym.Env):
         """
         super().__init__()
 
-        self.num_players = NUM_PLAYERS
+        # Validate player count
+        if num_players != NUM_PLAYERS:
+            raise ValueError("Big Two requires exactly 4 players")
+
+        self.num_players = num_players
         self.games_per_episode = games_per_episode
         self.reward_function = reward_function
         self.track_move_history = track_move_history
@@ -78,11 +83,12 @@ class BigTwoRLWrapper(gym.Env):
         # True self-play experience tracking
         self.player_experiences = []  # List of experiences for each player
         self.current_obs_per_player = {}  # Store observations when they act
+        self._current_obs: Optional[np.ndarray] = None  # Track latest observation for convenience
 
         # Episode tracking
         self.games_completed = 0
         self.episode_complete = False
-        
+
         # Model reference for true self-play (set by trainer)
         self._model_reference = None
 
@@ -132,6 +138,7 @@ class BigTwoRLWrapper(gym.Env):
 
         # Get observation from current player's perspective (respects 3♦ starting rule)
         obs = self._get_observation(self.game.current_player)
+        self._current_obs = obs
 
         info = {
             "current_player": self.game.current_player,  # Return actual current player
@@ -162,18 +169,18 @@ class BigTwoRLWrapper(gym.Env):
             return self._handle_episode_completion()
 
         current_player = self.game.current_player
-        
+
         # Store current player's observation
         current_obs = self._get_observation(current_player)
-        
+
         # Execute current player's action
         player_reward = self._execute_player_action(current_player, action, current_obs)
-        
+
         # Check if game or episode ended after this action
         if self.game.done:
             # Process final rewards for all players
             self._apply_final_rewards()
-            
+
             # Check if episode is complete
             self.games_completed += 1
             if self.games_completed >= self.games_per_episode:
@@ -185,12 +192,14 @@ class BigTwoRLWrapper(gym.Env):
                 self.obs_vectorizer.reset()
                 # Return observation for new game's starting player
                 next_obs = self._get_observation(self.game.current_player)
+                self._current_obs = next_obs
                 terminated = False
         else:
             # Game continues - return observation for next player
             next_obs = self._get_observation(self.game.current_player)
+            self._current_obs = next_obs
             terminated = False
-        
+
         info = {
             "current_player": self.game.current_player,
             "games_completed": self.games_completed,
@@ -202,12 +211,12 @@ class BigTwoRLWrapper(gym.Env):
 
     def _execute_player_action(self, player: int, action: int, current_obs: np.ndarray) -> float:
         """Execute an action for a specific player and collect their experience.
-        
+
         Args:
             player: Player index (0-3)
             action: Action index to execute
             current_obs: Player's observation before the action
-            
+
         Returns:
             Reward received by the player for this action
         """
@@ -233,157 +242,28 @@ class BigTwoRLWrapper(gym.Env):
         player_reward = 0.0  # Only final rewards count to avoid double-counting
 
         # Store this player's experience for training
-        self.player_experiences.append({
-            "player": player,
-            "observation": current_obs,
-            "action": action,
-            "reward": player_reward,  # Will be updated with final rewards later
-            "done": game_done,
-            "info": info_dict,
-            "legal_moves_count": len(legal_moves),
-        })
+        self.player_experiences.append(
+            {
+                "player": player,
+                "observation": current_obs,
+                "action": action,
+                "reward": player_reward,  # Will be updated with final rewards later
+                "done": game_done,
+                "info": info_dict,
+                "legal_moves_count": len(legal_moves),
+            }
+        )
 
         return player_reward
-
-    def _autoplay_until_player0_turn(self) -> Tuple[float, bool, np.ndarray]:
-        """Auto-play other players until it's Player 0's turn again or episode ends.
-        
-        This is where true self-play happens - the same network that controls Player 0
-        also controls Players 1, 2, and 3 when it's their turn.
-        
-        Returns:
-            Tuple of (accumulated_reward_for_p0, episode_terminated, next_obs_for_p0)
-        """
-        accumulated_reward = 0.0
-        
-        while not self.game.done and self.game.current_player != 0:
-            current_player = self.game.current_player
-            
-            # Get observation for current player
-            player_obs = self._get_observation(current_player)
-            
-            # Use the same network to select action (true self-play)
-            # For now, we'll use a simple policy - in practice, this would query the same network
-            action = self._select_selfplay_action(current_player, player_obs)
-            
-            # Execute the action for this player
-            self._execute_player_action(current_player, action, player_obs)
-            
-        # Handle game completion if game ended
-        if self.game.done:
-            # Process final rewards for all players
-            self._apply_final_rewards()
-            
-            # Check if episode is complete
-            self.games_completed += 1
-            if self.games_completed >= self.games_per_episode:
-                # Episode complete
-                self.episode_complete = True
-                return accumulated_reward, True, self._get_final_observation()
-            else:
-                # Start next game
-                self.game.reset()
-                self.obs_vectorizer.reset()
-                # Continue playing until it's Player 0's turn
-                return self._autoplay_until_player0_turn()
-        
-        # Game continues, return observation for Player 0
-        next_obs = self._get_observation(0)
-        return accumulated_reward, False, next_obs
-
-    def _select_selfplay_action(self, player: int, observation: np.ndarray) -> int:
-        """Select action for a player in self-play mode.
-        
-        Uses the same PPO model that controls Player 0 for true self-play.
-        Falls back to a simple policy if model is not available.
-        
-        Args:
-            player: Player index
-            observation: Player's current observation
-            
-        Returns:
-            Action index to execute
-        """
-        # Get legal moves for this player
-        legal_moves = self.game.legal_moves(player)
-        if not legal_moves:
-            raise ValueError(f"No legal moves available for player {player}")
-        
-        # Try to use the same PPO model for true self-play
-        if self._model_reference is not None:
-            try:
-                # Temporarily switch current player to get correct action mask
-                original_player = self.game.current_player
-                self.game.current_player = player
-                action_mask = self.get_action_mask()
-                self.game.current_player = original_player
-                
-                # Use the model to predict action (this is true self-play!)
-                # Check if model supports action masking
-                if hasattr(self._model_reference, 'policy') and hasattr(self._model_reference.policy, 'action_net'):
-                    # MaskablePPO case
-                    try:
-                        action, _ = self._model_reference.predict(
-                            observation, 
-                            action_mask=action_mask,
-                            deterministic=False  # Use stochastic policy for exploration
-                        )
-                    except TypeError:
-                        # Fallback for regular PPO
-                        action, _ = self._model_reference.predict(observation, deterministic=False)
-                else:
-                    # Regular PPO case
-                    action, _ = self._model_reference.predict(observation, deterministic=False)
-                
-                # Ensure action is within legal bounds
-                if isinstance(action, (list, np.ndarray)):
-                    action = action[0]  # Extract scalar from array
-                action = int(action)
-                
-                if 0 <= action < len(legal_moves):
-                    return action
-                else:
-                    # Fallback to random choice if prediction is out of bounds
-                    return np.random.choice(len(legal_moves))
-                    
-            except Exception as e:
-                # Track prediction errors for debugging
-                if not hasattr(self, '_model_prediction_errors'):
-                    self._model_prediction_errors = 0
-                self._model_prediction_errors += 1
-                
-                # Only log first few errors to avoid spam
-                if self._model_prediction_errors <= 3:
-                    print(f"Self-play model prediction error for player {player}: {e}")
-        
-        # Fallback: Improved policy (prefer low singles, then other moves)
-        single_card_moves = []
-        low_card_moves = []
-        
-        for i, move in enumerate(legal_moves):
-            if isinstance(move, np.ndarray) and np.sum(move) == 1:
-                single_card_moves.append(i)
-                # Prefer lower cards (earlier indices in sorted hand)
-                card_idx = np.where(move)[0][0]
-                if card_idx < 10:  # Approximately low cards
-                    low_card_moves.append(i)
-        
-        # Priority: low single cards > any single cards > random move
-        if low_card_moves:
-            return np.random.choice(low_card_moves)
-        elif single_card_moves:
-            return np.random.choice(single_card_moves)
-        else:
-            return np.random.choice(len(legal_moves))
 
     def _apply_final_rewards(self):
         """Apply final rewards to all collected experiences when game ends."""
         # Calculate cards left for all players at game end
         all_cards_left = [int(np.sum(self.game.hands[i])) for i in range(self.num_players)]
-        
+
         # Find winner and process with episode manager
         winner_player, _ = self.episode_manager.handle_game_end(all_cards_left)
-        
+
         # Apply custom reward function to get final rewards
         final_rewards = []
         if self.reward_function is not None:
@@ -402,7 +282,7 @@ class BigTwoRLWrapper(gym.Env):
                     final_rewards.append(1.0)  # Winner gets +1
                 else:
                     final_rewards.append(-0.1 * all_cards_left[i])  # Penalty for cards left
-        
+
         # Update experiences with final rewards
         for exp in self.player_experiences:
             if exp["done"]:  # This experience ended the game
@@ -537,6 +417,7 @@ class BigTwoRLWrapper(gym.Env):
 
         # Return dummy observation and signal episode complete
         dummy_obs = np.zeros(self.observation_space.shape, dtype=np.float32)
+        self._current_obs = dummy_obs
 
         # Get comprehensive episode metrics for logging
         episode_metrics = self.episode_manager.get_episode_metrics()
@@ -607,6 +488,14 @@ class BigTwoRLWrapper(gym.Env):
         """Close environment (no resources to clean up)."""
         pass
 
+    @property
+    def current_obs(self) -> np.ndarray:
+        """Latest observation vector for convenience in diagnostics/tests."""
+        if self._current_obs is None:
+            # Provide a zero observation with correct shape if not yet initialized
+            return np.zeros(self.observation_space.shape, dtype=np.float32)
+        return self._current_obs
+
     # Backward compatibility property for tournament/evaluation code
     @property
     def env(self):
@@ -640,11 +529,3 @@ class BigTwoRLWrapper(gym.Env):
         if self.episode_manager is None:
             return 0
         return self.episode_manager.losses_count
-    
-    def set_model_reference(self, model):
-        """Set reference to the PPO model for true self-play action selection.
-        
-        Args:
-            model: The PPO model being trained
-        """
-        self._model_reference = model

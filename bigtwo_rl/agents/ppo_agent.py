@@ -15,7 +15,6 @@ class PPOAgent(BaseAgent):
     def __init__(
         self,
         model_path: Optional[str] = None,
-        model: Optional[PPO] = None,
         name: str = "PPO",
         observation_config: Optional[Any] = None,
     ) -> None:
@@ -31,11 +30,6 @@ class PPOAgent(BaseAgent):
 
         if model_path:
             self.model = PPO.load(model_path)
-        elif model:
-            self.model = model
-            self.model_path = None  # Can't serialize if created from model object
-        else:
-            raise ValueError("Must provide either model_path or model")
 
         self.deterministic = True
 
@@ -68,9 +62,7 @@ class PPOAgent(BaseAgent):
         if self.env_obs_config is not None and self.model_obs_config is not None:
             self._prepare_feature_mapping()
 
-    def get_action(
-        self, observation: np.ndarray, action_mask: Optional[np.ndarray] = None
-    ) -> int:
+    def get_action(self, observation: np.ndarray, action_mask: Optional[np.ndarray] = None) -> int:
         """Get action from PPO model."""
         # Convert observation to the model's expected feature space if needed
         observation = self._convert_observation(observation)
@@ -186,9 +178,7 @@ class PPOAgent(BaseAgent):
                 if self.env_obs_config is not None:
                     self._prepare_feature_mapping()
 
-    def _compute_feature_spans(
-        self, config: ObservationConfig
-    ) -> Dict[str, Tuple[int, int]]:
+    def _compute_feature_spans(self, config: ObservationConfig) -> Dict[str, Tuple[int, int]]:
         """Return feature name -> (start, end) spans for a given config.
 
         The order must mirror ObservationVectorizer.vectorize.
@@ -207,9 +197,7 @@ class PPOAgent(BaseAgent):
             "pass_history": 4 if config.include_pass_history else 0,
             "play_patterns": 16 if config.include_play_patterns else 0,
             "power_cards_remaining": 5 if config.include_power_cards_remaining else 0,
-            "hand_type_capabilities": 20
-            if config.include_hand_type_capabilities
-            else 0,
+            "hand_type_capabilities": 20 if config.include_hand_type_capabilities else 0,
         }
 
         spans: Dict[str, Tuple[int, int]] = {}
