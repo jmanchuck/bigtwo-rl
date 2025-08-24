@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Tournament system for Big Two agents."""
 
 import numpy as np

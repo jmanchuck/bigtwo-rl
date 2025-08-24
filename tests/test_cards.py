@@ -1,8 +1,17 @@
-#!/usr/bin/env python3
 """Test card encoding/decoding."""
 
-from bigtwo_rl.core.card_utils import *
 import numpy as np
+from bigtwo_rl.core.card_utils import (
+    array_from_card_indices,
+    card_indices_from_array,
+    card_to_string,
+    format_hand,
+    format_hand_array,
+    hand_array_to_strings,
+    parse_move_input,
+    strings_to_hand_array,
+    string_to_card,
+)
 
 
 def test_card_conversion():

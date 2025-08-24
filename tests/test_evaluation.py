@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Test evaluation system with numpy arrays."""
 
 from bigtwo_rl.evaluation import Evaluator, Tournament

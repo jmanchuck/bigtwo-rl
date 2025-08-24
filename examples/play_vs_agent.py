@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Play Big Two against trained AI agents using Tournament framework."""
 
 import sys

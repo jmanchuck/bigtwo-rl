@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Test the RL wrapper to ensure it works correctly."""
 
 from bigtwo_rl.core.rl_wrapper import BigTwoRLWrapper

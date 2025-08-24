@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Test new reward structure."""
 
 from bigtwo_rl.core.bigtwo import ToyBigTwoFullRules

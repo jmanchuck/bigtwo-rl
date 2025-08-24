@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Evaluate trained agent against baselines."""
 
 from typing import Dict, Any, List, Optional

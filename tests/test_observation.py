@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Test the new observation space with full previous hand information."""
 
 import numpy as np

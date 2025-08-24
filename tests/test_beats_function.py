@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Comprehensive unit tests for the _beats() function in Big Two game engine."""
 
 import pytest

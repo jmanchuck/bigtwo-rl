@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Unit tests for Big Two game rules enforcement."""
 
 import pytest
