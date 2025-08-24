@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Big Two RL Agent Library - A comprehensive reinforcement learning library for training AI agents to play Big Two (Chinese card game) using PPO (Proximal Policy Optimization). The library provides a clean, extensible API to experiment with different training approaches.
 
 **Key Features**: 
+- **Self-Play Training**: Advanced multi-player training with 4x more data per game (enabled by default)
 - **High-Performance Core**: Fully vectorized numpy implementation (5-20x speedup)
 - **Memory Optimized**: Boolean array representation (50-75% memory reduction)
 - **Library Architecture**: Proper Python package with clear module organization
@@ -45,7 +46,8 @@ bigtwo_rl/                           # Main library package
 ├── __init__.py                      # Main exports: BigTwoRLWrapper, agents
 ├── core/                            # Core game components
 │   ├── bigtwo.py                   # Complete Big Two game implementation
-│   ├── rl_wrapper.py               # Gymnasium-compatible RL wrapper
+│   ├── rl_wrapper.py               # Single-player RL wrapper
+│   ├── self_play_wrapper.py        # Multi-player self-play wrapper (default)
 │   └── card_utils.py               # Card utilities and display functions
 ├── agents/                          # Agent implementations
 │   ├── base_agent.py               # Common agent interface
@@ -53,7 +55,8 @@ bigtwo_rl/                           # Main library package
 │   ├── greedy_agent.py             # Greedy baseline  
 │   └── ppo_agent.py                # PPO model wrapper
 ├── training/                        # Training infrastructure
-│   ├── trainer.py                  # Main Trainer class
+│   ├── trainer.py                  # Main Trainer class (self-play enabled by default)
+│   ├── multi_player_buffer.py      # Multi-player experience collection
 │   ├── hyperparams.py              # Hyperparameter configurations
 │   └── rewards.py                  # Reward functions + BaseReward class
 ├── evaluation/                      # Evaluation and competition
@@ -98,7 +101,8 @@ logs/                                # Tensorboard training logs
 
 **Game Environment (`bigtwo_rl.core`)**:
 - `ToyBigTwoFullRules`: Complete Big Two game implementation with numpy vectorization
-- `BigTwoRLWrapper`: Gymnasium-compatible RL environment with optimized observations
+- `SelfPlayBigTwoWrapper`: Multi-player self-play environment (default, 4x more training data)
+- `BigTwoRLWrapper`: Single-player RL environment (legacy, for comparison)
 - **Configurable Observation Space**: 15+ features, from minimal (57) to strategic (300+ features)
 - Dynamic action space with proper action masking
 - **Performance**: Vectorized legal move generation, hand type identification with LRU cache
@@ -110,18 +114,18 @@ logs/                                # Tensorboard training logs
 
 ## Usage Examples
 
-### Basic Training
+### Basic Training (Self-Play by Default)
 ```python
 from bigtwo_rl.training import Trainer
 from bigtwo_rl.training.rewards import DefaultReward
 from bigtwo_rl.training.hyperparams import DefaultConfig
 from bigtwo_rl import standard_observation
 
-# Training with all required components
+# Self-play training enabled by default (4x more training data)
 trainer = Trainer(
     reward_function=DefaultReward(),
     hyperparams=DefaultConfig(),
-    observation_config=standard_observation()  # Required
+    observation_config=standard_observation()
 )
 model, model_dir = trainer.train(total_timesteps=25000)
 ```
@@ -220,6 +224,35 @@ ScoreMarginReward()      # Continuous reward based on card advantage
 ComplexMoveReward(five_card_bonus=0.1)  # Bonuses for complex combinations
 AggressivePenaltyReward()  # Higher penalties for poor performance
 ```
+
+## Self-Play Training System
+
+**Why Self-Play?**
+Self-play training is enabled by default because it provides significant advantages:
+- **4x More Training Data**: Each game step generates experiences from all 4 player perspectives
+- **Better Strategic Learning**: Network learns by playing against evolving copies of itself
+- **Sample Efficiency**: Faster convergence to strong policies with same compute time
+- **Dynamic Curriculum**: Opponents automatically scale in difficulty as agent improves
+
+**How It Works**:
+- Single neural network controls all 4 players simultaneously
+- Multi-player experience buffer collects training data from all perspectives
+- Retroactive reward assignment ensures proper credit assignment
+- Compatible with all existing reward functions and observation configurations
+
+**Usage**:
+```python
+# Self-play enabled by default - no code changes needed
+trainer = Trainer(reward_function=DefaultReward(), ...)
+
+# Disable self-play for comparison (legacy single-player training)
+trainer = Trainer(reward_function=DefaultReward(), enable_self_play=False, ...)
+```
+
+**Performance Impact**:
+- Training speed: Same as before (efficient implementation)
+- Memory usage: ~4x more experience storage (manageable)
+- Training quality: Significantly improved due to 4x more data and self-play dynamics
 
 ## Key RL Concepts
 

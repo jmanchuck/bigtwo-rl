@@ -1,89 +1,104 @@
+"""Big Two RL Environment with True Self-Play Training.
+
+This wrapper provides both single-player training (controlled player + opponents) and true self-play 
+training (all 4 players use same network) with comprehensive logging and metrics.
+"""
+
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
-from typing import Dict, Any, Optional, Tuple, List
+from typing import Dict, Any, Optional, Tuple, List, Union
 from .bigtwo import ToyBigTwoFullRules
 from .episode_manager import EpisodeManager
-from .opponent_controller import OpponentController
-from .game_state_tracker import GameStateTracker
-from .observation_builder import (
-    ObservationConfig,
-    ObservationVectorizer,
-)
+from .observation_builder import ObservationConfig, ObservationVectorizer
+import inspect
 
 
 class BigTwoRLWrapper(gym.Env):
-    """Gymnasium-compatible RL wrapper for Big Two card game environment.
+    """Gymnasium-compatible RL wrapper for Big Two with true self-play support.
 
-    This wrapper provides a clean interface for training RL agents on Big Two,
-    with modular components for episode management, opponent control, and game state tracking.
+    This wrapper provides a clean interface for training RL agents on Big Two using true self-play
+    where all 4 players in the same game use the same neural network. This enables genuine 
+    self-play dynamics, co-evolution, and 4x more training data per game.
 
     Key Features:
-    - Multi-game episode training with configurable episode lengths
-    - Flexible opponent system with pluggable agent providers
-    - Optimized legal move caching and action masking
-    - Comprehensive episode metrics and statistics
-    - Configurable observation features and reward functions
+    - True self-play training (all 4 players use same network)
+    - Multi-game episode training with configurable episode lengths  
+    - Comprehensive logging: 27+ metrics for strategy analysis
+    - Custom reward functions with move bonuses and episode bonuses
+    - Game context tracking for strategic move evaluation
+    - Move type tracking (singles, pairs, five-card hands)
+    - Episode performance metrics and rankings
 
     Architecture:
-    - EpisodeManager: Handles multi-game episode tracking and metrics
-    - OpponentController: Manages opponent agents and autoplay logic
-    - GameStateTracker: Provides legal move caching and action validation
-    - ObservationVectorizer: Converts game state to feature vectors
+    - EpisodeManager: Handles multi-game episode tracking and comprehensive metrics
+    - ObservationVectorizer: Converts game state to configurable feature vectors
+    - True multi-agent: Network decides for whichever player's turn it is
     """
 
     def __init__(
         self,
         observation_config: ObservationConfig,
-        num_players=4,
-        games_per_episode=10,
-        reward_function=None,
-        controlled_player: int = 0,
-        opponent_provider=None,
+        num_players: int = 4,
+        games_per_episode: int = 10,
+        reward_function = None,
         track_move_history: bool = False,
     ):
+        """Initialize Big Two RL wrapper with true self-play.
+
+        Args:
+            observation_config: Observation configuration
+            num_players: Number of players (must be 4 for Big Two)
+            games_per_episode: Number of games per training episode
+            reward_function: BaseReward instance for custom rewards
+            track_move_history: Whether to track detailed move history
+        """
         super().__init__()
-        self.env = ToyBigTwoFullRules(
-            num_players, track_move_history=track_move_history
-        )
+        
+        if num_players != 4:
+            raise ValueError(f"Big Two requires exactly 4 players, got {num_players}")
+            
         self.num_players = num_players
         self.games_per_episode = games_per_episode
-        self.reward_function = (
-            reward_function  # BaseReward instance for intermediate rewards
-        )
-        self.controlled_player = controlled_player
-
-        # Initialize opponent controller
-        self.opponent_controller = OpponentController(
-            num_players=num_players,
-            controlled_player=controlled_player,
-            opponent_provider=opponent_provider,
-        )
-
-        # Set up observation configuration - must be explicit ObservationConfig instance
+        self.reward_function = reward_function
+        self.track_move_history = track_move_history
+        
+        # Store config for lazy initialization (multiprocessing-safe)
         self.obs_config = observation_config
-
-        # Initialize observation vectorizer
-        self.obs_vectorizer = ObservationVectorizer(self.obs_config)
-        self.observation_space = self.obs_vectorizer.gymnasium_space
-
-        # Initialize game state tracker for caching and action masking
-        self.game_state_tracker = GameStateTracker(action_space_size=2000)
-
-        # Initialize episode manager for multi-game episode tracking
-        self.episode_manager = EpisodeManager(
-            games_per_episode=games_per_episode,
-            num_players=num_players,
-            controlled_player=controlled_player,
-        )
-
-        # Action space: Dynamic based on legal moves (max estimated around 1000 for 5-card combos)
-        # We'll use a large fixed space and mask invalid actions
+        
+        # Initialize observation space immediately (needed for PPO model creation)
+        temp_vectorizer = ObservationVectorizer(observation_config)
+        self.observation_space = temp_vectorizer.gymnasium_space
         self.action_space = spaces.Discrete(2000)
-
-        # Current observation state
-        self.current_obs = None
-
+        
+        # Lazy initialization for game components (will be created in reset())
+        self.game = None
+        self.obs_vectorizer = None
+        self.episode_manager = None
+        
+        # True self-play experience tracking
+        self.player_experiences = []  # List of experiences for each player
+        self.current_obs_per_player = {}  # Store observations when they act
+        
+        # Episode tracking
+        self.games_completed = 0
+        self.episode_complete = False
+        
+    def _ensure_initialized(self):
+        """Ensure game components are initialized (multiprocessing-safe lazy init)."""
+        if self.game is None:
+            self.game = ToyBigTwoFullRules(self.num_players, self.track_move_history)
+            
+        if self.obs_vectorizer is None:
+            self.obs_vectorizer = ObservationVectorizer(self.obs_config)
+            
+        if self.episode_manager is None:
+            self.episode_manager = EpisodeManager(
+                games_per_episode=self.games_per_episode,
+                num_players=self.num_players,
+                controlled_player=0,  # All players are "controlled" in self-play
+            )
+        
     def reset(
         self, seed: Optional[int] = None, options: Optional[Dict[str, Any]] = None
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
@@ -94,292 +109,161 @@ class BigTwoRLWrapper(gym.Env):
             options: Additional options (unused)
 
         Returns:
-            Tuple of (initial_observation, info_dict)
+            Tuple of (initial_observation, info_dict) from current player
         """
         if seed is not None:
             np.random.seed(seed)
-
-        # Reset episode manager
-        self.episode_manager.reset_episode()
-
-        # Reset game state tracker cache
-        self.game_state_tracker.reset_cache()
-
-        # Reset observation tracking
+            
+        # Ensure components are initialized (multiprocessing-safe)
+        self._ensure_initialized()
+            
+        # Reset all components
+        self.game.reset()
         self.obs_vectorizer.reset()
-
-        raw_obs = self.env.reset(seed=seed)
-        # Setup opponents for new episode
-        self.opponent_controller.setup_episode_opponents(env_reference=self)
-        self.current_obs = self._vectorize_obs(raw_obs)
-        return self.current_obs, {}
-
+        self.episode_manager.reset_episode()
+        
+        # Reset true self-play tracking
+        self.player_experiences = []
+        self.current_obs_per_player = {}
+        self.games_completed = 0
+        self.episode_complete = False
+        
+        # Get initial observation for current player
+        obs = self._get_observation(self.game.current_player)
+        
+        info = {
+            'current_player': self.game.current_player,
+            'games_completed': self.games_completed,
+            'episode_complete': self.episode_complete,
+            'legal_moves_count': len(self.game.legal_moves(self.game.current_player))
+        }
+        
+        return obs, info
+    
     def step(self, action: int) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
-        """Execute one step of the RL environment.
+        """Execute one step where the current player acts using the network.
 
-        Handles opponent autoplay, game transitions, and episode management.
-
-        Args:
-            action: Action index for the controlled player
-
-        Returns:
-            Tuple of (observation, reward, terminated, truncated, info)
-        """
-        info = {}
-        reward_to_return = 0.0
-
-        # Helper to apply a single move for the current player (either agent or opponent)
-        def _apply_move(move_index: int):
-            raw_obs_local, _rewards, game_done_local, info_local = self.env.step(
-                move_index
-            )
-            self.game_state_tracker.increment_turn_counter()
-            return raw_obs_local, game_done_local, info_local
-
-        # Phase 1: Autoplay opponents until it's the controlled player's turn
-        opp_reward, terminated, raw_obs, opp_info = (
-            self._autoplay_opponents_until_controlled_player(_apply_move)
-        )
-        reward_to_return += opp_reward
-        info.update(opp_info)
-
-        if terminated:
-            return self._handle_episode_termination(reward_to_return, raw_obs, info)
-
-        # Phase 2: Process the controlled player's move
-        raw_obs, game_done, step_info = self._process_controlled_player_move(
-            action, _apply_move
-        )
-        info.update(step_info)
-
-        # Phase 3: Handle game end if it occurred
-        if game_done:
-            reward_to_return += self._handle_game_end_reward()
-            ep_done, raw_obs = self._advance_or_reset_game()
-            if ep_done:
-                return self._handle_episode_termination(reward_to_return, raw_obs, info)
-
-        # Phase 4: Autoplay opponents after controlled player's move
-        opp_reward_after, terminated_after, final_raw_obs, final_info = (
-            self._autoplay_opponents_after_controlled_move(_apply_move)
-        )
-        reward_to_return += opp_reward_after
-        info.update(final_info)
-
-        if terminated_after:
-            return self._handle_episode_termination(
-                reward_to_return, final_raw_obs or raw_obs, info
-            )
-
-        # Return observation for the controlled player's next decision point
-        self.current_obs = self._vectorize_obs(final_raw_obs or raw_obs)
-        return self.current_obs, reward_to_return, False, False, info
-
-    def _vectorize_obs(self, raw_obs: Dict[str, Any]) -> np.ndarray:
-        """Convert dict observation to configured feature vector."""
-        return self.obs_vectorizer.vectorize(raw_obs, self.env)
-
-    def _execute_single_opponent_move(
-        self, apply_move_fn
-    ) -> Tuple[Optional[Dict[str, Any]], bool, float]:
-        """Execute a single opponent move and return results.
+        This implements true self-play: all 4 players use the same network.
+        The network decides for whichever player's turn it is, enabling co-evolution
+        and 4x more training data per game.
 
         Args:
-            apply_move_fn: Function to apply a move to the environment
+            action: Action index for the current acting player
 
         Returns:
-            Tuple of (raw_obs, game_done, additional_reward)
+            Tuple of (observation, reward, terminated, truncated, info) for next player
         """
-        opp_player = self.env.current_player
-        legal_moves_opp = self.game_state_tracker.get_legal_moves_cached(
-            self.env, opp_player
-        )
-        move_idx = self._select_opponent_action(opp_player)
-
-        # Track opponent move for observation memory features
-        try:
-            selected_move = (
-                legal_moves_opp[move_idx] if move_idx < len(legal_moves_opp) else []
-            )
-            self.obs_vectorizer.update_tracking(selected_move, opp_player, self.env)
-        except Exception:
-            pass
-
-        raw_obs, game_done, _ = apply_move_fn(move_idx)
-        additional_reward = 0.0
-
-        if game_done:
-            # Handle end of a single game
-            additional_reward = self._handle_game_end_reward()
-
-        return raw_obs, game_done, additional_reward
-
-    def _autoplay_opponents_until_controlled_player(
-        self, apply_move_fn
-    ) -> Tuple[float, bool, Optional[Dict[str, Any]], Dict[str, Any]]:
-        """Autoplay opponents until it's the controlled player's turn.
-
-        Args:
-            apply_move_fn: Function to apply a move to the environment
-
-        Returns:
-            Tuple of (total_reward, terminated, final_raw_obs, final_info)
-        """
-        if not self.opponent_controller.has_opponents():
-            return 0.0, False, None, {}
-
-        total_reward = 0.0
-        terminated = False
-        raw_obs = None
-        info = {}
-
-        # Autoplay opponents until controlled player's turn
-        while (self.env.current_player != self.controlled_player) and (not terminated):
-            raw_obs, game_done, additional_reward = self._execute_single_opponent_move(
-                apply_move_fn
-            )
-            total_reward += additional_reward
-
-            if game_done:
-                # Start next game or finish episode
-                ep_done, raw_obs = self._advance_or_reset_game()
-                if ep_done:
-                    terminated = True
-                    break
-
-        return total_reward, terminated, raw_obs, info
-
-    def _autoplay_opponents_after_controlled_move(
-        self, apply_move_fn
-    ) -> Tuple[float, bool, Optional[Dict[str, Any]], Dict[str, Any]]:
-        """Autoplay opponents after the controlled player's move until next controlled turn.
-
-        Args:
-            apply_move_fn: Function to apply a move to the environment
-
-        Returns:
-            Tuple of (total_reward, terminated, final_raw_obs, final_info)
-        """
-        if not self.opponent_controller.has_opponents():
-            return 0.0, False, None, {}
-
-        total_reward = 0.0
-        terminated = False
-        raw_obs = None
-        info = {}
-
-        while self.env.current_player != self.controlled_player:
-            raw_obs, game_done, additional_reward = self._execute_single_opponent_move(
-                apply_move_fn
-            )
-            total_reward += additional_reward
-
-            if game_done:
-                # Start next game or finish episode
-                ep_done, raw_obs = self._advance_or_reset_game()
-                if ep_done:
-                    terminated = True
-                    break
-
-        return total_reward, terminated, raw_obs, info
-
-    def _handle_episode_termination(
-        self,
-        reward_to_return: float,
-        raw_obs: Optional[Dict[str, Any]],
-        info: Dict[str, Any],
-    ) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
-        """Handle episode termination by adding bonus and metrics.
-
-        Args:
-            reward_to_return: Accumulated reward so far
-            raw_obs: Final raw observation
-            info: Info dictionary to update
-
-        Returns:
-            Complete step return tuple for terminated episode
-        """
-        # Add episode bonus at episode end
-        total_reward = reward_to_return + float(
-            self.episode_manager.calculate_episode_bonus(self.reward_function)
-        )
-
-        # Add Big Two metrics to info when episode completes
-        info.update(self.episode_manager.get_episode_metrics())
-
-        self.current_obs = self._vectorize_obs(raw_obs)
-        return self.current_obs, total_reward, True, False, info
-
-    def _calculate_episode_bonus(self) -> float:
-        """Calculate episode bonus using episode manager."""
-        return self.episode_manager.calculate_episode_bonus(self.reward_function)
-
-    def get_episode_metrics(self) -> Dict[str, float]:
-        """Get episode metrics from episode manager."""
-        return self.episode_manager.get_episode_metrics()
-
-    def _process_controlled_player_move(
-        self, action: int, apply_move_fn
-    ) -> Tuple[Dict[str, Any], bool, Dict[str, Any]]:
-        """Process the controlled player's move including validation and tracking.
-
-        Args:
-            action: Action index for the controlled player
-            apply_move_fn: Function to apply a move to the environment
-
-        Returns:
-            Tuple of (raw_obs, game_done, info)
-        """
-        # Convert action index to actual move for current player
-        legal_moves = self.game_state_tracker.get_legal_moves_cached(
-            self.env, self.env.current_player
-        )
-        # Validate and clamp action to legal range
-        move_idx = self.game_state_tracker.validate_and_clamp_action(
-            action, legal_moves
-        )
-
-        # Track controlled player's move for observation memory features and metrics
-        try:
-            selected_move_cp = (
-                legal_moves[move_idx] if move_idx < len(legal_moves) else []
-            )
-            self.obs_vectorizer.update_tracking(
-                selected_move_cp, self.env.current_player, self.env
-            )
-        except Exception:
-            pass
-
-        raw_obs, game_done, info = apply_move_fn(move_idx)
+        # Ensure initialized
+        self._ensure_initialized()
+        
+        if self.game.done:
+            # Game already finished, check if episode is complete
+            return self._handle_episode_completion()
+            
+        current_player = self.game.current_player
+        
+        # Store current observation before taking action (for experience collection)
+        current_obs = self._get_observation(current_player)
+        self.current_obs_per_player[current_player] = current_obs
+        
+        # Validate action is within legal moves bounds
+        legal_moves = self.game.legal_moves(current_player)
+        if action >= len(legal_moves):
+            # Invalid action - force a valid action (e.g., pass or first legal move)
+            if len(legal_moves) > 0:
+                action = 0  # Take first legal move
+            else:
+                raise ValueError(f"No legal moves available for player {current_player}")
+        
+        # Track move metrics and bonuses BEFORE executing the move
+        self._track_move_metrics_and_bonuses(legal_moves, action, current_player)
+        
+        # Execute action in the game
+        game_obs_dict, rewards_list, game_done, info_dict = self.game.step(action)
+        
+        # Increment step counter for episode metrics
         self.episode_manager.increment_steps()
+        
+        # Store this player's experience for training
+        reward = rewards_list[current_player] if len(rewards_list) > current_player else 0.0
+        self.player_experiences.append({
+            'player': current_player,
+            'observation': current_obs,
+            'action': action,
+            'reward': reward,
+            'done': game_done,
+            'info': info_dict
+        })
+        
+        if game_done:
+            return self._handle_game_completion(rewards_list)
+        else:
+            # Game continues, return observation for next player
+            next_player = self.game.current_player
+            next_obs = self._get_observation(next_player)
+            
+            info = {
+                'current_player': next_player,
+                'previous_player': current_player,
+                'games_completed': self.games_completed,
+                'episode_complete': False,
+                'legal_moves_count': len(self.game.legal_moves(next_player))
+            }
+            
+            return next_obs, 0.0, False, False, info
+    
+    def _get_observation(self, player: int) -> np.ndarray:
+        """Get observation for specific player using observation vectorizer.
 
-        # Track move bonus and move types for controlled player
-        self._track_move_bonus_and_metrics(legal_moves, move_idx)
+        Args:
+            player: Player index (0-3)
 
-        return raw_obs, game_done, info
-
-    def _track_move_bonus_and_metrics(
-        self, legal_moves: List[np.ndarray], move_idx: int
+        Returns:
+            Observation vector for the player
+        """
+        # Temporarily set current player to get observation from their perspective
+        original_player = self.game.current_player
+        self.game.current_player = player
+        
+        # Get raw observation from game engine
+        raw_obs = self.game._get_obs()
+        
+        # Restore original current player
+        self.game.current_player = original_player
+        
+        # Convert to observation vector
+        return self.obs_vectorizer.vectorize(raw_obs, self.game)
+    
+    def _track_move_metrics_and_bonuses(
+        self, legal_moves: List[np.ndarray], action: int, current_player: int
     ) -> None:
-        """Track move bonus and move types for the controlled player.
+        """Track move bonuses and move types for comprehensive metrics.
 
         Args:
             legal_moves: List of legal moves available
-            move_idx: Index of the selected move
+            action: Index of the selected move
+            current_player: Player making the move
         """
-        if self.reward_function is not None and hasattr(
-            self.reward_function, "move_bonus"
-        ):
-            selected_move = legal_moves[move_idx]
-            if isinstance(selected_move, np.ndarray):
-                # Convert boolean mask to list of card indices
-                move_cards = np.where(selected_move)[0].tolist()
+        if action >= len(legal_moves):
+            return  # Invalid action, nothing to track
+            
+        selected_move = legal_moves[action]
+        
+        if isinstance(selected_move, np.ndarray):
+            # Convert boolean mask to list of card indices
+            move_cards = np.where(selected_move)[0].tolist()
+            
+            # Track move type for episode metrics
+            self.episode_manager.track_move_type(move_cards)
+            
+            # Calculate and track move bonus if reward function supports it
+            if (self.reward_function is not None and 
+                hasattr(self.reward_function, "move_bonus")):
                 
-                # Build game context for move quality evaluation
-                game_context = self._build_game_context()
+                # Build game context for strategic move evaluation
+                game_context = self._build_game_context(current_player)
                 
                 # Call move_bonus with context (backward compatible)
-                import inspect
                 sig = inspect.signature(self.reward_function.move_bonus)
                 if 'game_context' in sig.parameters:
                     move_bonus = self.reward_function.move_bonus(move_cards, game_context)
@@ -387,34 +271,34 @@ class BigTwoRLWrapper(gym.Env):
                     move_bonus = self.reward_function.move_bonus(move_cards)
                 
                 self.episode_manager.add_move_bonus(move_bonus)
-
-                # Track move types for metrics
-                self.episode_manager.track_move_type(move_cards)
-
-    def _build_game_context(self) -> Dict[str, Any]:
+    
+    def _build_game_context(self, player_idx: int) -> Dict[str, Any]:
         """Build game context dictionary for move quality evaluation.
+
+        Args:
+            player_idx: Index of the player making the move
         
         Returns:
             Dict containing game state information for strategic evaluation
         """
         context = {}
         
-        # Get controlled player's remaining hand
-        controlled_hand = self.env.hands[self.controlled_player]
-        remaining_hand = np.where(controlled_hand)[0].tolist()
+        # Get player's remaining hand
+        player_hand = self.game.hands[player_idx]
+        remaining_hand = np.where(player_hand)[0].tolist()
         context['remaining_hand'] = remaining_hand
         
         # Get opponent card counts
         opponent_card_counts = []
         for i in range(self.num_players):
-            if i != self.controlled_player:
-                card_count = int(np.sum(self.env.hands[i]))
+            if i != player_idx:
+                card_count = int(np.sum(self.game.hands[i]))
                 opponent_card_counts.append(card_count)
         context['opponent_card_counts'] = opponent_card_counts
         
         # Determine game phase based on card counts
-        min_hand_size = min([int(np.sum(self.env.hands[i])) for i in range(self.num_players)])
-        max_hand_size = max([int(np.sum(self.env.hands[i])) for i in range(self.num_players)])
+        min_hand_size = min([int(np.sum(self.game.hands[i])) for i in range(self.num_players)])
+        max_hand_size = max([int(np.sum(self.game.hands[i])) for i in range(self.num_players)])
         
         if max_hand_size > 10:
             game_phase = 'OPENING'
@@ -426,128 +310,186 @@ class BigTwoRLWrapper(gym.Env):
         
         # Get last play information
         last_play_strength = 1  # Default single card strength
-        if self.env.last_play is not None:
-            last_play_cards = np.where(self.env.last_play[0])[0]
+        if self.game.last_play is not None:
+            last_play_cards = np.where(self.game.last_play[0])[0]
             last_play_strength = len(last_play_cards)
         context['last_play_strength'] = last_play_strength
         
         # Get current turn and position info
-        context['current_player'] = self.env.current_player
-        context['controlled_player'] = self.controlled_player
-        context['passes_in_row'] = self.env.passes_in_row
+        context['current_player'] = self.game.current_player
+        context['controlled_player'] = player_idx  # In self-play, current player is "controlled"
+        context['passes_in_row'] = self.game.passes_in_row
         
         # Get game progress metrics
         total_cards_dealt = self.num_players * 13  # Standard 52 cards, 4 players
-        total_cards_remaining = sum([int(np.sum(self.env.hands[i])) for i in range(self.num_players)])
+        total_cards_remaining = sum([int(np.sum(self.game.hands[i])) for i in range(self.num_players)])
         cards_played_total = total_cards_dealt - total_cards_remaining
         context['cards_played_ratio'] = cards_played_total / total_cards_dealt if total_cards_dealt > 0 else 0
         
         return context
+    
+    def _handle_game_completion(self, rewards_list: List[float]) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
+        """Handle game completion, process rewards, and check if episode should continue.
 
-    def get_action_mask(self) -> np.ndarray:
-        """Return boolean mask for legal actions."""
-        return self.game_state_tracker.get_action_mask(
-            self.env, self.env.current_player
-        )
+        Args:
+            rewards_list: Final rewards for all players
 
-    # For sb3-contrib MaskablePPO compatibility
-    def action_masks(self) -> np.ndarray:
-        """Alias used by ActionMasker wrapper to fetch the current legal action mask."""
-        return self.get_action_mask()
-
-    def _calculate_game_reward(self, player_idx: int) -> float:
-        """Calculate immediate reward after game completion."""
+        Returns:
+            Tuple for next game or episode completion
+        """
+        self.games_completed += 1
+        
+        # Calculate cards left for all players at game end
+        all_cards_left = [int(np.sum(self.game.hands[i])) for i in range(self.num_players)]
+        
+        # Process game end with episode manager (for controlled player = 0, but applies to all in self-play)
+        winner_player, _ = self.episode_manager.handle_game_end(all_cards_left)
+        
+        # Apply custom reward function if provided
         if self.reward_function is not None:
-            # Find winner and get all cards left
-            winner_player = None
-            all_cards_left = []
-            for p in range(self.num_players):
-                cards_left = int(np.sum(self.env.hands[p]))
-                all_cards_left.append(cards_left)
-                if cards_left == 0:
-                    winner_player = p
-
-            if winner_player is not None:
-                cards_left = all_cards_left[player_idx]
-                return self.reward_function.game_reward(
-                    winner_player, player_idx, cards_left, all_cards_left
+            for i in range(self.num_players):
+                processed_reward = self.reward_function.game_reward(
+                    winner_player=winner_player,
+                    player_idx=i, 
+                    cards_left=all_cards_left[i],
+                    all_cards_left=all_cards_left
                 )
-
-        # Default reward if no custom function
-        cards_left = int(np.sum(self.env.hands[player_idx]))
-        if cards_left == 0:  # Winner
-            return 1.0
+                rewards_list[i] = processed_reward
+        
+        # Store final rewards for all players in their experiences
+        for exp in self.player_experiences:
+            if exp['done']:  # This was the final action that ended the game
+                exp['reward'] += rewards_list[exp['player']]
+        
+        # Check if episode is complete
+        if self.games_completed >= self.games_per_episode:
+            self.episode_complete = True
+            return self._finalize_episode()
         else:
-            return -0.1 * cards_left  # Simple penalty
+            # Start next game in episode
+            self.game.reset()
+            self.obs_vectorizer.reset()  # Reset observation memory for new game
+            next_obs = self._get_observation(self.game.current_player)
+            
+            info = {
+                'current_player': self.game.current_player,
+                'games_completed': self.games_completed,
+                'episode_complete': False,
+                'legal_moves_count': len(self.game.legal_moves(self.game.current_player))
+            }
+            
+            return next_obs, 0.0, False, False, info
+    
+    def _handle_episode_completion(self) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
+        """Handle when step is called but episode is already complete."""
+        return self._finalize_episode()
+        
+    def _finalize_episode(self) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
+        """Finalize episode with episode bonus and comprehensive metrics."""
+        # Calculate episode bonus using episode manager
+        episode_bonus = float(self.episode_manager.calculate_episode_bonus(self.reward_function))
+        
+        # Return dummy observation and signal episode complete
+        dummy_obs = np.zeros(self.observation_space.shape, dtype=np.float32)
+        
+        # Get comprehensive episode metrics for logging
+        episode_metrics = self.episode_manager.get_episode_metrics()
+        
+        info = {
+            'episode_complete': True,
+            'games_completed': self.games_completed,
+            'episode_bonus': episode_bonus,
+            'multi_player_experiences': self.player_experiences,  # All experiences for training
+            **episode_metrics  # Include all Big Two metrics for logging
+        }
+        
+        return dummy_obs, episode_bonus, True, False, info
+    
+    def get_action_mask(self) -> np.ndarray:
+        """Get action mask for current acting player.
 
-    # --- New helpers for opponent autoplay and episode/game transitions ---
-    def _select_opponent_action(self, player_idx: int) -> int:
-        """Select an action index for a non-controlled opponent player."""
-        legal_moves = self.game_state_tracker.get_legal_moves_cached(
-            self.env, player_idx
-        )
-        # Build observation for that player
-        raw_obs = self.env._get_obs()
-        obs_vec = self._vectorize_obs(raw_obs)
-
-        return self.opponent_controller.select_opponent_action(
-            player_idx=player_idx,
-            legal_moves=legal_moves,
-            observation_vector=obs_vec,
-            find_pass_move_fn=self.game_state_tracker.find_pass_move_idx,
-        )
-
-    def _handle_game_end_reward(self) -> float:
-        """Process end-of-game bookkeeping and return the controlled player's immediate reward."""
-        # Calculate cards remaining for all players at game end
-        all_cards_left = [
-            int(np.sum(self.env.hands[i])) for i in range(self.num_players)
-        ]
-
-        # Use episode manager to handle game end tracking
-        winner_player, controlled_player_won = self.episode_manager.handle_game_end(
-            all_cards_left
-        )
-
-        # Calculate reward using existing method
-        reward = self._calculate_game_reward(self.controlled_player)
-
-        return float(reward)
-
-    def _advance_or_reset_game(self) -> Tuple[bool, Optional[Dict[str, Any]]]:
-        """Start the next game if episode not finished. Returns (episode_done, raw_obs)."""
-        episode_done = self.episode_manager.is_episode_complete()
-        if episode_done:
-            # Do NOT reset core env here to allow external evaluators to inspect final state
-            # Episode bonus is handled by caller and the env will be reset on next external reset()
-            return True, self.env._get_obs()
-        # Clear caches for new game and reset core env
-        self.game_state_tracker.clear_cache_for_new_game()
-        # Reset observation memory tracking per game
-        try:
-            self.obs_vectorizer.reset()
-        except Exception:
-            pass
-        raw_obs = self.env.reset()
-        return False, raw_obs
-
+        Returns:
+            Boolean mask for legal actions (True = legal, False = illegal)
+        """
+        # Ensure initialized
+        self._ensure_initialized()
+        
+        if self.game.done:
+            # If game is done, no actions are legal
+            return np.zeros(self.action_space.n, dtype=bool)
+            
+        legal_moves = self.game.legal_moves(self.game.current_player)
+        mask = np.zeros(self.action_space.n, dtype=bool)
+        
+        # Set legal action indices to True
+        for i in range(min(len(legal_moves), self.action_space.n)):
+            mask[i] = True
+            
+        return mask
+    
+    def action_masks(self) -> np.ndarray:
+        """Alias for compatibility with ActionMasker wrapper."""
+        return self.get_action_mask()
+    
+    def get_episode_metrics(self) -> Dict[str, float]:
+        """Get episode metrics from episode manager.
+        
+        Returns:
+            Dictionary of comprehensive Big Two episode metrics
+        """
+        if self.episode_manager is None:
+            return {}
+        return self.episode_manager.get_episode_metrics()
+    
+    def render(self, mode: str = "human") -> Optional[np.ndarray]:
+        """Render environment (basic game state info)."""
+        if mode == "human":
+            print(f"True Self-Play Big Two Game State:")
+            print(f"Current Player: {self.game.current_player}")
+            print(f"Games Completed: {self.games_completed}/{self.games_per_episode}")
+            print(f"Game Done: {self.game.done}")
+            if self.game.last_play is not None:
+                cards_played = np.where(self.game.last_play[0])[0]
+                print(f"Last Play: Player {self.game.last_play[1]} played cards {cards_played}")
+            for i in range(4):
+                cards_count = np.sum(self.game.hands[i])
+                print(f"Player {i}: {cards_count} cards")
+        return None
+    
+    def close(self) -> None:
+        """Close environment (no resources to clean up)."""
+        pass
+    
+    # Backward compatibility property for tournament/evaluation code
+    @property
+    def env(self):
+        """Access to underlying game engine for backward compatibility."""
+        self._ensure_initialized()
+        return self.game
+    
     # Backward compatibility properties to expose episode manager state
     @property
     def games_played(self) -> int:
-        """Number of games played in current episode."""
-        return self.episode_manager.games_played
-
+        """Total games played in current episode."""
+        return self.games_completed
+    
     @property
     def games_won(self) -> int:
-        """Number of games won in current episode."""
+        """Number of games won in current episode (episode manager tracks this)."""
+        if self.episode_manager is None:
+            return 0
         return self.episode_manager.games_won
-
+    
     @property
     def total_cards_when_losing(self) -> int:
         """Total cards remaining when losing games."""
+        if self.episode_manager is None:
+            return 0
         return self.episode_manager.total_cards_when_losing
-
+    
     @property
     def losses_count(self) -> int:
         """Number of games lost in current episode."""
+        if self.episode_manager is None:
+            return 0
         return self.episode_manager.losses_count

@@ -11,8 +11,8 @@ from ..core.rl_wrapper import BigTwoRLWrapper
 from ..core.observation_builder import ObservationConfig
 from .hyperparams import BaseConfig
 from .rewards import BaseReward
-from .opponent_pool import OpponentPool, EnvOpponentProvider
 from .callbacks import BigTwoMetricsCallback
+from .multi_player_buffer import MultiPlayerExperienceBuffer
 
 
 class ConfigurableBigTwoWrapper(BigTwoRLWrapper):
@@ -24,17 +24,15 @@ class ConfigurableBigTwoWrapper(BigTwoRLWrapper):
         num_players=4,
         games_per_episode=10,
         reward_function=None,
-        controlled_player: int = 0,
-        opponent_provider=None,
+        track_move_history: bool = False,
     ):
-        # Pass all configuration directly to parent
+        # Pass all configuration directly to parent (now uses true self-play by default)
         super().__init__(
             observation_config,
             num_players,
             games_per_episode,
             reward_function,
-            controlled_player,
-            opponent_provider,
+            track_move_history,
         )
 
 
@@ -47,21 +45,17 @@ class Trainer:
         hyperparams: BaseConfig,
         observation_config: ObservationConfig,
         eval_freq: int = 500,
-        controlled_player: int = 0,
-        opponent_mixture: Optional[dict] = None,
         snapshot_dir: Optional[str] = None,
         snapshot_every_steps: Optional[int] = None,
         enable_bigtwo_metrics: bool = True,
     ):
         """
-        Initialize trainer.
+        Initialize trainer with true self-play training.
 
         Args:
             reward_function: Reward function instance (e.g., DefaultReward())
             hyperparams: Hyperparameter configuration instance (e.g., DefaultConfig())
             eval_freq: How often to evaluate during training - publishes metrics and saves models
-            controlled_player: Which player the agent controls (0-3)
-            opponent_mixture: Dict specifying opponent mix ratios
             snapshot_dir: Directory to save model snapshots
             snapshot_every_steps: How often to save snapshots
             observation_config: Custom observation configuration
@@ -75,23 +69,24 @@ class Trainer:
         self.config_name = hyperparams.__class__.__name__
 
         self.eval_freq = eval_freq
-        self.controlled_player = controlled_player
-        self.opponent_mixture = opponent_mixture
         self.snapshot_dir = snapshot_dir
         self.snapshot_every_steps = snapshot_every_steps
         self.observation_config = observation_config
         self.enable_bigtwo_metrics = enable_bigtwo_metrics
-        self._opponent_provider = None
+        
+        # Self-play specific components (always enabled now)
+        self.multi_player_buffer = MultiPlayerExperienceBuffer()
 
     def _make_env(self):
         """Create environment instance with configuration."""
-        env = ConfigurableBigTwoWrapper(
+        # Now using unified BigTwoRLWrapper with true self-play enabled by default
+        env = BigTwoRLWrapper(
             observation_config=self.observation_config,
             games_per_episode=self.config["games_per_episode"],
             reward_function=self.reward_function,
-            controlled_player=self.controlled_player,
-            opponent_provider=self._opponent_provider,
+            track_move_history=False,
         )
+        
         # If maskable PPO is available, wrap env to expose action masks
         try:
             from sb3_contrib.common.wrappers import ActionMasker  # type: ignore
@@ -155,14 +150,8 @@ class Trainer:
 
     def _setup_opponent_provider(self) -> None:
         """Setup opponent provider if configured."""
-        if self.snapshot_dir is not None or self.opponent_mixture is not None:
-            snapshot_dir = self.snapshot_dir or "./models"
-            pool = OpponentPool(
-                snapshot_dir=snapshot_dir, mixture=self.opponent_mixture
-            )
-            self._opponent_provider = EnvOpponentProvider(pool)
-        else:
-            self._opponent_provider = None
+        # No opponents needed for true self-play (always enabled now)
+        self._opponent_provider = None
 
     def _setup_training_environments(self) -> tuple:
         """Create training and evaluation environments."""
