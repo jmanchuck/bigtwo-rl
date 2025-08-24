@@ -95,21 +95,6 @@ class FastExperimentalConfig(BaseConfig):
 
 
 @dataclass(frozen=False)
-class OptimizedConfig(BaseConfig):
-    """Optimized configuration based on successful Big Two implementation."""
-
-    learning_rate: float = 2.5e-4  # Matches successful implementation
-    n_steps: int = 1024  # Larger batch collection
-    batch_size: int = 64  # Match their batch size
-    n_epochs: int = 20  # Match their training intensity
-    gamma: float = 0.995  # High future reward discounting
-    gae_lambda: float = 0.95  # Match their GAE lambda
-    clip_range: float = 0.2  # Standard PPO clipping
-    games_per_episode: int = 64  # Large batch size like theirs
-    n_envs: int = min(8, max(4, (os.cpu_count() or 8) // 2))
-
-
-@dataclass(frozen=False)
 class ReferenceExactConfig(BaseConfig):
     """Exact hyperparameter match to reference implementation.
     
@@ -139,11 +124,3 @@ class ReferenceExactConfig(BaseConfig):
         # Adjust batch_size to be compatible
         if self.batch_size > total_batch:
             self.batch_size = total_batch // 4  # Use quarter of total as mini-batch
-        
-        print(f"ReferenceExactConfig initialized:")
-        print(f"  Total collection: {total_batch} transitions")
-        print(f"  Mini-batch size: {self.batch_size}")
-        print(f"  Training epochs: {self.n_epochs}")
-        print(f"  Games per episode: {self.games_per_episode}")
-        print(f"  Learning rate: {self.learning_rate}")
-        print(f"  Gamma: {self.gamma}, GAE Lambda: {self.gae_lambda}")

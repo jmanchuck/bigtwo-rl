@@ -1,28 +1,26 @@
 """Training infrastructure for Big Two agents."""
 
-from .trainer import Trainer
-from .multi_player_ppo import MultiPlayerPPO
 from .callbacks import BigTwoMetricsCallback
 
 # Import hyperparameter configurations
 from .hyperparams import (
-    DefaultConfig,
     AggressiveConfig,
     ConservativeConfig,
+    DefaultConfig,
     FastExperimentalConfig,
-    OptimizedConfig,
     ReferenceExactConfig,
 )
+from .multi_player_ppo import MultiPlayerPPO
+from .trainer import Trainer
 
 __all__ = [
-    "Trainer",
-    "MultiPlayerPPO",
+    "AggressiveConfig",
     "BigTwoMetricsCallback",
+    "ConservativeConfig",
     # Hyperparameter configurations
     "DefaultConfig",
-    "AggressiveConfig",
-    "ConservativeConfig",
     "FastExperimentalConfig",
-    "OptimizedConfig",
+    "MultiPlayerPPO",
     "ReferenceExactConfig",
+    "Trainer",
 ]
