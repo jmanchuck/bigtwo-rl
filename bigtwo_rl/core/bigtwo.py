@@ -265,22 +265,41 @@ class ToyBigTwoFullRules:
         hand_cards = np.where(hand_array)[0]  # get actual card indices
         moves = []
 
+        # Special case: Start of game - first player must play hand containing 3♦
+        three_of_diamonds = 0  # card index 0 = 3♦
+        is_game_start = (self.last_play is None)
+        
         # Singles
         for c in hand_cards:
             single_mask = np.zeros(52, dtype=bool)
             single_mask[c] = True
+            
+            # Check game start requirement
+            if is_game_start and three_of_diamonds not in hand_cards:
+                continue  # This player shouldn't be playing (wrong starting player)
+            if is_game_start and not single_mask[three_of_diamonds]:
+                continue  # Must include 3♦ in starting play
+                
             if self._beats(single_mask):
                 moves.append(single_mask)
 
         # Pairs (vectorized)
         pairs = self._find_pairs_vectorized(hand_cards)
         for pair in pairs:
+            # Check game start requirement
+            if is_game_start and not pair[three_of_diamonds]:
+                continue  # Must include 3♦ in starting play
+                
             if self._beats(pair):
                 moves.append(pair)
 
         # Trips (vectorized)
         trips = self._find_trips_vectorized(hand_cards)
         for trip in trips:
+            # Check game start requirement
+            if is_game_start and not trip[three_of_diamonds]:
+                continue  # Must include 3♦ in starting play
+                
             if self._beats(trip):
                 moves.append(trip)
 
@@ -296,13 +315,23 @@ class ToyBigTwoFullRules:
                 ):
                     pass  # Skip 5-card generation entirely
                 else:
-                    moves.extend(self._generate_5_card_hands_optimized(hand_cards))
+                    five_card_hands = self._generate_5_card_hands_optimized(hand_cards)
+                    # Filter for game start requirement
+                    for hand in five_card_hands:
+                        if is_game_start and not hand[three_of_diamonds]:
+                            continue  # Must include 3♦ in starting play
+                        moves.append(hand)
             else:
                 # No last play or last play wasn't 5-card, generate all 5-card hands
-                moves.extend(self._generate_5_card_hands_optimized(hand_cards))
+                five_card_hands = self._generate_5_card_hands_optimized(hand_cards)
+                # Filter for game start requirement
+                for hand in five_card_hands:
+                    if is_game_start and not hand[three_of_diamonds]:
+                        continue  # Must include 3♦ in starting play
+                    moves.append(hand)
 
-        # Always allowed to pass (unless starting new trick)
-        if self.last_play is not None:
+        # Always allowed to pass (unless starting new trick or game start)
+        if self.last_play is not None and not is_game_start:
             pass_mask = np.zeros(52, dtype=bool)
             moves.append(pass_mask)  # PASS as all-false mask
 

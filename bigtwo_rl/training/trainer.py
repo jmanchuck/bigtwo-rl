@@ -13,6 +13,7 @@ from .hyperparams import BaseConfig
 from .rewards import BaseReward
 from .callbacks import BigTwoMetricsCallback
 from .multi_player_buffer import MultiPlayerExperienceBuffer
+from .self_play_callback import SimpleSelfPlayCallback
 
 
 class ConfigurableBigTwoWrapper(BigTwoRLWrapper):
@@ -29,9 +30,8 @@ class ConfigurableBigTwoWrapper(BigTwoRLWrapper):
         # Pass all configuration directly to parent (now uses true self-play by default)
         super().__init__(
             observation_config,
-            num_players,
-            games_per_episode,
             reward_function,
+            games_per_episode,
             track_move_history,
         )
 
@@ -155,11 +155,15 @@ class Trainer:
 
     def _setup_training_environments(self) -> tuple:
         """Create training and evaluation environments."""
-        # Create training environment with true multiprocessing
-        env = SubprocVecEnv([self._make_env for _ in range(self.config["n_envs"])])
+        # For true self-play, we need to use DummyVecEnv so model reference can be shared
+        # SubprocVecEnv runs environments in separate processes, making model sharing difficult
+        from stable_baselines3.common.vec_env import DummyVecEnv
+        
+        # Create training environment (single process for model sharing)
+        env = DummyVecEnv([self._make_env for _ in range(self.config["n_envs"])])
 
         # Create evaluation environment (match vectorized type with training to avoid warnings)
-        eval_env = SubprocVecEnv([self._make_env])
+        eval_env = DummyVecEnv([self._make_env])
 
         return env, eval_env
 
@@ -215,6 +219,9 @@ class Trainer:
         # Add Big Two metrics callback if enabled
         if self.enable_bigtwo_metrics:
             callbacks.append(BigTwoMetricsCallback(verbose=0))
+        
+        # Add self-play callback to monitor multi-player experience collection
+        callbacks.append(SimpleSelfPlayCallback(verbose=1))
 
         # Add snapshot callback if configured
         if self.snapshot_every_steps is not None and self.snapshot_every_steps > 0:

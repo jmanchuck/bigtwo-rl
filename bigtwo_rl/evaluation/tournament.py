@@ -235,9 +235,9 @@ def _run_game_batch(
     track_history = any(isinstance(agent, HumanAgent) for agent in agents)
 
     env = BigTwoRLWrapper(
-        num_players=4,
-        games_per_episode=1,
         observation_config=env_obs_config,
+        reward_function=None,  # Use default rewards
+        games_per_episode=1,
         track_move_history=track_history,
     )
 
@@ -346,9 +346,9 @@ def _play_four_player_series_sequential(
     track_history = any(isinstance(agent, HumanAgent) for agent in agents)
 
     env = BigTwoRLWrapper(
-        num_players=4,
-        games_per_episode=1,
         observation_config=env_obs_config,
+        reward_function=None,  # Use default rewards
+        games_per_episode=1,
         track_move_history=track_history,
     )
 
