@@ -73,7 +73,7 @@ class Trainer:
         self.snapshot_every_steps = snapshot_every_steps
         self.observation_config = observation_config
         self.enable_bigtwo_metrics = enable_bigtwo_metrics
-        
+
         # Self-play specific components (always enabled now)
         self.multi_player_buffer = MultiPlayerExperienceBuffer()
 
@@ -86,7 +86,7 @@ class Trainer:
             reward_function=self.reward_function,
             track_move_history=False,
         )
-        
+
         # If maskable PPO is available, wrap env to expose action masks
         try:
             from sb3_contrib.common.wrappers import ActionMasker  # type: ignore
@@ -158,7 +158,7 @@ class Trainer:
         # For true self-play, we need to use DummyVecEnv so model reference can be shared
         # SubprocVecEnv runs environments in separate processes, making model sharing difficult
         from stable_baselines3.common.vec_env import DummyVecEnv
-        
+
         # Create training environment (single process for model sharing)
         env = DummyVecEnv([self._make_env for _ in range(self.config["n_envs"])])
 
@@ -219,7 +219,7 @@ class Trainer:
         # Add Big Two metrics callback if enabled
         if self.enable_bigtwo_metrics:
             callbacks.append(BigTwoMetricsCallback(verbose=0))
-        
+
         # Add self-play callback to monitor multi-player experience collection
         callbacks.append(SimpleSelfPlayCallback(verbose=1))
 

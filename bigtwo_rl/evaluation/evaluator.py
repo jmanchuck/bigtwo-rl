@@ -20,7 +20,9 @@ class Evaluator:
         self.num_games = num_games
         self.n_processes = n_processes
 
-    def evaluate_agent(self, agent: BaseAgent, baselines: bool = True) -> Dict[str, Any]:
+    def evaluate_agent(
+        self, agent: BaseAgent, baselines: bool = True
+    ) -> Dict[str, Any]:
         """
         Evaluate an agent in 4-player series against three opponents.
 
@@ -33,7 +35,9 @@ class Evaluator:
         """
         # Always construct a 4-player table: [agent] + 3 opponents
         if not baselines:
-            raise ValueError("evaluate_agent requires baselines=True to auto-generate three opponents")
+            raise ValueError(
+                "evaluate_agent requires baselines=True to auto-generate three opponents"
+            )
 
         # Create a mix of random/greedy opponents (2 Random, 1 Greedy by default)
         opponents = [
@@ -45,7 +49,9 @@ class Evaluator:
         table_agents = [agent] + opponents
         return play_four_player_series(table_agents, self.num_games, self.n_processes)
 
-    def evaluate_model(self, model_path: str, model_name: Optional[str] = None) -> Dict[str, Any]:
+    def evaluate_model(
+        self, model_path: str, model_name: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         Evaluate a trained PPO model against baselines.
 
@@ -62,7 +68,9 @@ class Evaluator:
         agent = PPOAgent(model_path=model_path, name=model_name)
         return self.evaluate_agent(agent)
 
-    def compare_models(self, model_paths: List[str], model_names: Optional[List[str]] = None) -> Dict[str, Any]:
+    def compare_models(
+        self, model_paths: List[str], model_names: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
         """
         Compare multiple trained models against each other and baselines.
 
@@ -88,7 +96,9 @@ class Evaluator:
                 GreedyAgent("Greedy"),
             ]
             table_agents = [agent] + opponents
-            results[agent.name] = play_four_player_series(table_agents, self.num_games, self.n_processes)
+            results[agent.name] = play_four_player_series(
+                table_agents, self.num_games, self.n_processes
+            )
         return {"per_agent_series": results}
 
 

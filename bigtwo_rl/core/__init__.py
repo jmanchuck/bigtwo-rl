@@ -7,6 +7,6 @@ from .card_utils import *
 
 __all__ = [
     "ToyBigTwoFullRules",
-    "BigTwoRLWrapper", 
+    "BigTwoRLWrapper",
     "EpisodeManager",
 ]

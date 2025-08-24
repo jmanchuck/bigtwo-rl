@@ -26,7 +26,11 @@ def load_ppo_agent(model_path: str, name: Optional[str] = None) -> PPOAgent:
     """
     if name is None:
         # Extract name from model path - use parent directory name
-        name = os.path.basename(os.path.dirname(model_path)) if "/" in model_path else "PPO"
+        name = (
+            os.path.basename(os.path.dirname(model_path))
+            if "/" in model_path
+            else "PPO"
+        )
 
     return PPOAgent(model_path=model_path, name=name)
 

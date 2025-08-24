@@ -43,7 +43,9 @@ class BigTwoRLWrapper(gym.Env):
     def __init__(
         self,
         observation_config: ObservationConfig,
-        reward_function: Optional[Any] = None,  # BaseReward instance (optional to avoid circular import)
+        reward_function: Optional[
+            Any
+        ] = None,  # BaseReward instance (optional to avoid circular import)
         num_players: int = 4,
         games_per_episode: int = 10,
         track_move_history: bool = False,
@@ -83,7 +85,9 @@ class BigTwoRLWrapper(gym.Env):
         # True self-play experience tracking
         self.player_experiences = []  # List of experiences for each player
         self.current_obs_per_player = {}  # Store observations when they act
-        self._current_obs: Optional[np.ndarray] = None  # Track latest observation for convenience
+        self._current_obs: Optional[np.ndarray] = (
+            None  # Track latest observation for convenience
+        )
 
         # Episode tracking
         self.games_completed = 0
@@ -204,12 +208,16 @@ class BigTwoRLWrapper(gym.Env):
             "current_player": self.game.current_player,
             "games_completed": self.games_completed,
             "episode_complete": terminated,
-            "legal_moves_count": len(self.game.legal_moves(self.game.current_player)) if not terminated else 0,
+            "legal_moves_count": len(self.game.legal_moves(self.game.current_player))
+            if not terminated
+            else 0,
         }
 
         return next_obs, player_reward, terminated, False, info
 
-    def _execute_player_action(self, player: int, action: int, current_obs: np.ndarray) -> float:
+    def _execute_player_action(
+        self, player: int, action: int, current_obs: np.ndarray
+    ) -> float:
         """Execute an action for a specific player and collect their experience.
 
         Args:
@@ -259,7 +267,9 @@ class BigTwoRLWrapper(gym.Env):
     def _apply_final_rewards(self):
         """Apply final rewards to all collected experiences when game ends."""
         # Calculate cards left for all players at game end
-        all_cards_left = [int(np.sum(self.game.hands[i])) for i in range(self.num_players)]
+        all_cards_left = [
+            int(np.sum(self.game.hands[i])) for i in range(self.num_players)
+        ]
 
         # Find winner and process with episode manager
         winner_player, _ = self.episode_manager.handle_game_end(all_cards_left)
@@ -281,7 +291,9 @@ class BigTwoRLWrapper(gym.Env):
                 if i == winner_player:
                     final_rewards.append(1.0)  # Winner gets +1
                 else:
-                    final_rewards.append(-0.1 * all_cards_left[i])  # Penalty for cards left
+                    final_rewards.append(
+                        -0.1 * all_cards_left[i]
+                    )  # Penalty for cards left
 
         # Update experiences with final rewards
         for exp in self.player_experiences:
@@ -316,7 +328,9 @@ class BigTwoRLWrapper(gym.Env):
         # Convert to observation vector
         return self.obs_vectorizer.vectorize(raw_obs, self.game)
 
-    def _track_move_metrics_and_bonuses(self, legal_moves: List[np.ndarray], action: int, current_player: int) -> None:
+    def _track_move_metrics_and_bonuses(
+        self, legal_moves: List[np.ndarray], action: int, current_player: int
+    ) -> None:
         """Track move bonuses and move types for comprehensive metrics.
 
         Args:
@@ -337,14 +351,18 @@ class BigTwoRLWrapper(gym.Env):
             self.episode_manager.track_move_type(move_cards)
 
             # Calculate and track move bonus if reward function supports it
-            if self.reward_function is not None and hasattr(self.reward_function, "move_bonus"):
+            if self.reward_function is not None and hasattr(
+                self.reward_function, "move_bonus"
+            ):
                 # Build game context for strategic move evaluation
                 game_context = self._build_game_context(current_player)
 
                 # Call move_bonus with context (backward compatible)
                 sig = inspect.signature(self.reward_function.move_bonus)
                 if "game_context" in sig.parameters:
-                    move_bonus = self.reward_function.move_bonus(move_cards, game_context)
+                    move_bonus = self.reward_function.move_bonus(
+                        move_cards, game_context
+                    )
                 else:
                     move_bonus = self.reward_function.move_bonus(move_cards)
 
@@ -375,8 +393,12 @@ class BigTwoRLWrapper(gym.Env):
         context["opponent_card_counts"] = opponent_card_counts
 
         # Determine game phase based on card counts
-        min_hand_size = min([int(np.sum(self.game.hands[i])) for i in range(self.num_players)])
-        max_hand_size = max([int(np.sum(self.game.hands[i])) for i in range(self.num_players)])
+        min_hand_size = min(
+            [int(np.sum(self.game.hands[i])) for i in range(self.num_players)]
+        )
+        max_hand_size = max(
+            [int(np.sum(self.game.hands[i])) for i in range(self.num_players)]
+        )
 
         if max_hand_size > 10:
             game_phase = "OPENING"
@@ -395,25 +417,35 @@ class BigTwoRLWrapper(gym.Env):
 
         # Get current turn and position info
         context["current_player"] = self.game.current_player
-        context["controlled_player"] = player_idx  # In self-play, current player is "controlled"
+        context["controlled_player"] = (
+            player_idx  # In self-play, current player is "controlled"
+        )
         context["passes_in_row"] = self.game.passes_in_row
 
         # Get game progress metrics
         total_cards_dealt = self.num_players * 13  # Standard 52 cards, 4 players
-        total_cards_remaining = sum([int(np.sum(self.game.hands[i])) for i in range(self.num_players)])
+        total_cards_remaining = sum(
+            [int(np.sum(self.game.hands[i])) for i in range(self.num_players)]
+        )
         cards_played_total = total_cards_dealt - total_cards_remaining
-        context["cards_played_ratio"] = cards_played_total / total_cards_dealt if total_cards_dealt > 0 else 0
+        context["cards_played_ratio"] = (
+            cards_played_total / total_cards_dealt if total_cards_dealt > 0 else 0
+        )
 
         return context
 
-    def _handle_episode_completion(self) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
+    def _handle_episode_completion(
+        self,
+    ) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
         """Handle when step is called but episode is already complete."""
         return self._finalize_episode()
 
     def _finalize_episode(self) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
         """Finalize episode with episode bonus and comprehensive metrics."""
         # Calculate episode bonus using episode manager (applies to Player 0)
-        episode_bonus = float(self.episode_manager.calculate_episode_bonus(self.reward_function))
+        episode_bonus = float(
+            self.episode_manager.calculate_episode_bonus(self.reward_function)
+        )
 
         # Return dummy observation and signal episode complete
         dummy_obs = np.zeros(self.observation_space.shape, dtype=np.float32)
@@ -478,7 +510,9 @@ class BigTwoRLWrapper(gym.Env):
             print(f"Game Done: {self.game.done}")
             if self.game.last_play is not None:
                 cards_played = np.where(self.game.last_play[0])[0]
-                print(f"Last Play: Player {self.game.last_play[1]} played cards {cards_played}")
+                print(
+                    f"Last Play: Player {self.game.last_play[1]} played cards {cards_played}"
+                )
             for i in range(4):
                 cards_count = np.sum(self.game.hands[i])
                 print(f"Player {i}: {cards_count} cards")

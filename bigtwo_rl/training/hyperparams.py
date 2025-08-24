@@ -94,14 +94,14 @@ class FastExperimentalConfig(BaseConfig):
     n_envs: int = min(16, max(4, os.cpu_count() or 8))
 
 
-@dataclass(frozen=False) 
+@dataclass(frozen=False)
 class OptimizedConfig(BaseConfig):
     """Optimized configuration based on successful Big Two implementation."""
-    
+
     learning_rate: float = 2.5e-4  # Matches successful implementation
     n_steps: int = 1024  # Larger batch collection
-    batch_size: int = 64  # Match their batch size  
-    n_epochs: int = 20   # Match their training intensity
+    batch_size: int = 64  # Match their batch size
+    n_epochs: int = 20  # Match their training intensity
     gamma: float = 0.995  # High future reward discounting
     gae_lambda: float = 0.95  # Match their GAE lambda
     clip_range: float = 0.2  # Standard PPO clipping
