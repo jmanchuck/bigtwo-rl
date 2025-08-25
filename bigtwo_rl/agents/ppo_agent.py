@@ -1,227 +1,379 @@
-"""PPO agent wrapper for stable-baselines3 models."""
+"""PPO agent for fixed 1,365-action space.
 
-import os
+This agent works with models trained using the fixed action space and
+provides proper action masking during inference.
+"""
+
+import torch
 import numpy as np
-from typing import Optional, Any, Dict, Tuple, List
-from stable_baselines3 import PPO
+from typing import Optional, Any, Dict
+from pathlib import Path
+
 from .base_agent import BaseAgent
-from .model_metadata import ModelMetadata
+from ..training.multi_player_ppo import MultiPlayerPPO
+from ..core.action_system import BigTwoActionSystem
 from ..core.observation_builder import ObservationConfig
 
 
-class PPOAgent(BaseAgent):
-    """PPO agent wrapper for trained models."""
+def softmax(x: np.ndarray) -> np.ndarray:
+    """Numerically stable softmax implementation."""
+    exp_x = np.exp(x - np.max(x))
+    return exp_x / np.sum(exp_x)
 
+
+class PPOAgent(BaseAgent):
+    """PPO agent for fixed 1,365-action space.
+    
+    This agent loads models trained with the fixed action space and
+    handles action masking during inference for optimal play.
+    """
+    
     def __init__(
         self,
         model_path: Optional[str] = None,
         name: str = "PPO",
-        observation_config: Optional[Any] = None,
+        observation_config: Optional[ObservationConfig] = None,
+        deterministic: bool = True,
     ) -> None:
+        """Initialize Fixed Action PPO agent.
+        
+        Args:
+            model_path: Path to trained PPO model
+            name: Agent name for identification
+            observation_config: Observation configuration (for validation)
+            deterministic: Whether to use deterministic actions
+        """
         super().__init__(name)
-        self.model_path = model_path  # Store for serialization
-
-        # Observation configs
-        self.model_obs_config: Optional[ObservationConfig] = None
-        # Environment/runtime observation config (may be set later via set_env_reference)
-        self.env_obs_config: Optional[ObservationConfig] = None
-        if isinstance(observation_config, ObservationConfig):
-            self.env_obs_config = observation_config
-
-        if model_path:
-            self.model = PPO.load(model_path)
-
-        self.deterministic = True
-
-        # Target size expected by the loaded policy
-        self.expected_obs_size = int(self.model.policy.observation_space.shape[0])
-
-        # Prepare feature mapping if we already know the env config
-        self._feature_spans_env: Dict[str, Tuple[int, int]] = {}
-        self._feature_spans_model: Dict[str, Tuple[int, int]] = {}
-        self._feature_names_order = [
-            "hand",
-            "last_play",
-            "hand_sizes",
-            "played_cards",
-            "remaining_deck",
-            "cards_by_player",
-            "last_play_exists",
-            "game_phase",
-            "turn_position",
-            "trick_history",
-            "pass_history",
-            "play_patterns",
-            "power_cards_remaining",
-            "hand_type_capabilities",
-        ]
-        self._mapping_ready = False
-
-        # Try to load the model's observation configuration from metadata.json
-        self._try_load_model_obs_config()
-        if self.env_obs_config is not None and self.model_obs_config is not None:
-            self._prepare_feature_mapping()
-
-    def get_action(
-        self, observation: np.ndarray, action_mask: Optional[np.ndarray] = None
-    ) -> int:
-        """Get action from PPO model."""
-        # Convert observation to the model's expected feature space if needed
-        observation = self._convert_observation(observation)
-
-        # Get model prediction
-        action, _ = self.model.predict(observation, deterministic=self.deterministic)
-
-        # Apply action masking manually if the predicted action is invalid
-        if action_mask is not None:
-            if not action_mask[action]:
-                # Find a valid action from the mask
-                legal_actions = np.where(action_mask)[0]
-                if len(legal_actions) > 0:
-                    action = legal_actions[0]  # Take first legal action as fallback
-                else:
-                    action = 0  # Ultimate fallback
-
-        return int(action)
-
-    def reset(self) -> None:
-        """Nothing to reset for PPO agent (stateless)."""
-        pass
-
-    def _convert_observation(self, observation: np.ndarray) -> np.ndarray:
-        """Convert env observation vector to the model's expected observation space.
-
-        If we have both the model's ObservationConfig and the environment's
-        ObservationConfig, perform feature-aware mapping: drop extra features,
-        and zero-pad missing ones in the correct order. Otherwise, fall back to
-        generic pad/truncate to the model's expected length.
-        """
-        # Fast path: already the correct size
-        if observation.shape[0] == self.expected_obs_size:
-            return observation
-
-        if self._mapping_ready:
-            # Build output by concatenating per-feature segments in the model's order
-            segments: List[np.ndarray] = []
-            for feature_name in self._feature_names_order:
-                model_span = self._feature_spans_model.get(feature_name)
-                if model_span is None or model_span[1] - model_span[0] == 0:
-                    # Feature not used by model; skip
-                    continue
-
-                target_size = model_span[1] - model_span[0]
-                env_span = self._feature_spans_env.get(feature_name)
-
-                if env_span is None or env_span[1] - env_span[0] == 0:
-                    # Feature not present in env obs: zero-fill
-                    segments.append(np.zeros(target_size, dtype=np.float32))
-                else:
-                    src = observation[env_span[0] : env_span[1]]
-                    # Match sizes conservatively
-                    if src.shape[0] == target_size:
-                        segments.append(src)
-                    elif src.shape[0] > target_size:
-                        segments.append(src[:target_size])
-                    else:
-                        padded = np.zeros(target_size, dtype=np.float32)
-                        padded[: src.shape[0]] = src
-                        segments.append(padded)
-
-            if segments:
-                out = np.concatenate(segments)
-                # As a safeguard, adjust to exact expected length
-                if out.shape[0] != self.expected_obs_size:
-                    if out.shape[0] > self.expected_obs_size:
-                        out = out[: self.expected_obs_size]
-                    else:
-                        padded = np.zeros(self.expected_obs_size, dtype=np.float32)
-                        padded[: out.shape[0]] = out
-                        out = padded
-                return out
-
-        # Fallback: generic pad/truncate
-        if observation.shape[0] > self.expected_obs_size:
-            return observation[: self.expected_obs_size]
-        else:
-            padded = np.zeros(self.expected_obs_size, dtype=np.float32)
-            padded[: observation.shape[0]] = observation
-            return padded
-
-    def set_deterministic(self, deterministic: bool) -> None:
-        """Set whether to use deterministic policy."""
+        self.model_path = model_path
+        self.action_system = BigTwoActionSystem()
         self.deterministic = deterministic
-
-    # --- Environment wiring helpers ---
-    def set_env_reference(self, env: Any) -> None:
-        """Provide environment reference so we can read its observation config.
-
-        Called by evaluation/tournament code when available.
+        self.observation_config = observation_config
+        self.model = None
+        
+        # Load model if path provided
+        if model_path:
+            self._load_model(model_path)
+    
+    def _load_model(self, model_path: str) -> None:
+        """Load PPO model from file.
+        
+        Args:
+            model_path: Path to model file
         """
-        env_config = getattr(env, "obs_config", None)
-        if isinstance(env_config, ObservationConfig):
-            self.env_obs_config = env_config
-            if self.model_obs_config is not None:
-                self._prepare_feature_mapping()
-
-    # --- Internal helpers ---
-    def _try_load_model_obs_config(self) -> None:
-        """Load the model's ObservationConfig from metadata.json if available."""
-        model_dir = None
-        if self.model_path is not None:
-            model_dir = os.path.dirname(self.model_path)
-        # If created from a PPO model object, there is no path; skip
-        if model_dir and os.path.isdir(model_dir):
-            config = ModelMetadata.load_observation_config(model_dir)
-            if isinstance(config, ObservationConfig):
-                self.model_obs_config = config
-                # Ensure expected size aligns with policy's observation space
-                # but trust the policy space for final length
-                # Prepare mapping if env config is already known
-                if self.env_obs_config is not None:
-                    self._prepare_feature_mapping()
-
-    def _compute_feature_spans(
-        self, config: ObservationConfig
-    ) -> Dict[str, Tuple[int, int]]:
-        """Return feature name -> (start, end) spans for a given config.
-
-        The order must mirror ObservationVectorizer.vectorize.
+        if not Path(model_path).exists():
+            raise FileNotFoundError(f"Model file not found: {model_path}")
+        
+        try:
+            self.model = MultiPlayerPPO.load(model_path)
+            
+            # Validate model expects 1365 actions
+            if self.model.action_space.n != 1365:
+                raise ValueError(
+                    f"Model expects {self.model.action_space.n} actions, "
+                    f"but fixed space has 1365"
+                )
+            
+            print(f"✅ Loaded fixed action PPO model: {model_path}")
+            
+        except Exception as e:
+            raise RuntimeError(f"Failed to load model from {model_path}: {e}")
+    
+    def get_action(
+        self, 
+        observation: np.ndarray, 
+        action_mask: Optional[np.ndarray] = None
+    ) -> int:
+        """Get action using fixed action space.
+        
+        Args:
+            observation: Game observation vector
+            action_mask: 1365-dim boolean mask for legal actions
+            
+        Returns:
+            action_id: Action ID from 0-1364
         """
-        sizes: Dict[str, int] = {
-            "hand": 52 if config.include_hand else 0,
-            "last_play": 52 if config.include_last_play else 0,
-            "hand_sizes": 4 if config.include_hand_sizes else 0,
-            "played_cards": 52 if config.include_played_cards else 0,
-            "remaining_deck": 52 if config.include_remaining_deck else 0,
-            "cards_by_player": 208 if config.include_cards_by_player else 0,
-            "last_play_exists": 1 if config.include_last_play_exists else 0,
-            "game_phase": 3 if config.include_game_phase else 0,
-            "turn_position": 4 if config.include_turn_position else 0,
-            "trick_history": 12 if config.include_trick_history else 0,
-            "pass_history": 4 if config.include_pass_history else 0,
-            "play_patterns": 16 if config.include_play_patterns else 0,
-            "power_cards_remaining": 5 if config.include_power_cards_remaining else 0,
-            "hand_type_capabilities": 20
-            if config.include_hand_type_capabilities
-            else 0,
+        if not hasattr(self, 'model') or self.model is None:
+            raise ValueError("Model not loaded - call _load_model() first")
+        
+        # Get model prediction (1365 logits)
+        try:
+            # Handle both single observations and batches
+            if observation.ndim == 1:
+                obs_tensor = torch.FloatTensor(observation).unsqueeze(0)
+            else:
+                obs_tensor = torch.FloatTensor(observation)
+            
+            with torch.no_grad():
+                # Get action distribution from policy
+                distribution = self.model.policy.get_distribution(obs_tensor)
+                
+                if action_mask is not None:
+                    # Apply action mask to distribution
+                    distribution.set_mask(torch.BoolTensor(action_mask).unsqueeze(0))
+                
+                if self.deterministic:
+                    action = distribution.mode()
+                else:
+                    action = distribution.sample()
+                
+                return int(action.item())
+                
+        except Exception as e:
+            # Fallback to raw logits approach
+            try:
+                action, _ = self.model.predict(observation, deterministic=self.deterministic)
+                action_id = int(action)
+                
+                # Apply masking if provided
+                if action_mask is not None:
+                    if not action_mask[action_id]:
+                        # Action is masked, select best valid action
+                        valid_actions = np.where(action_mask)[0]
+                        if len(valid_actions) > 0:
+                            # Get logits and select best valid action
+                            with torch.no_grad():
+                                obs_tensor = torch.FloatTensor(observation).unsqueeze(0)
+                                logits = self.model.policy.get_distribution(obs_tensor).distribution.logits
+                                masked_logits = torch.where(
+                                    torch.BoolTensor(action_mask),
+                                    logits.squeeze(),
+                                    torch.tensor(-float('inf'))
+                                )
+                                action_id = int(torch.argmax(masked_logits).item())
+                        else:
+                            raise ValueError("No valid actions available")
+                
+                return action_id
+                
+            except Exception as e2:
+                raise RuntimeError(f"Failed to get action: {e}, fallback also failed: {e2}")
+    
+    def get_action_with_info(
+        self,
+        observation: np.ndarray,
+        action_mask: Optional[np.ndarray] = None
+    ) -> Dict[str, Any]:
+        """Get action with additional information.
+        
+        Args:
+            observation: Game observation
+            action_mask: Legal action mask
+            
+        Returns:
+            Dictionary with action and additional info
+        """
+        if not hasattr(self, 'model') or self.model is None:
+            raise ValueError("Model not loaded")
+        
+        try:
+            obs_tensor = torch.FloatTensor(observation).unsqueeze(0)
+            
+            with torch.no_grad():
+                # Get full policy output
+                actions, values, log_probs = self.model.policy(obs_tensor)
+                distribution = self.model.policy.get_distribution(obs_tensor)
+                
+                # Apply masking if provided
+                if action_mask is not None:
+                    distribution.set_mask(torch.BoolTensor(action_mask).unsqueeze(0))
+                    
+                    if self.deterministic:
+                        action = distribution.mode()
+                    else:
+                        action = distribution.sample()
+                    
+                    log_prob = distribution.log_prob(action)
+                else:
+                    action = actions
+                    log_prob = log_probs
+                
+                # Get action probabilities for analysis
+                probs = torch.softmax(distribution.distribution.logits, dim=-1)
+                
+                info = {
+                    'action': int(action.item()),
+                    'value': float(values.item()),
+                    'log_prob': float(log_prob.item()),
+                    'action_probs': probs.squeeze().numpy(),
+                    'entropy': float(distribution.entropy().item()),
+                    'valid_actions_count': int(action_mask.sum()) if action_mask is not None else 1365,
+                }
+                
+                return info
+                
+        except Exception as e:
+            # Fallback to simple prediction
+            action = self.get_action(observation, action_mask)
+            return {
+                'action': action,
+                'value': None,
+                'log_prob': None,
+                'action_probs': None,
+                'entropy': None,
+                'valid_actions_count': int(action_mask.sum()) if action_mask is not None else 1365,
+                'fallback_used': True,
+                'error': str(e)
+            }
+    
+    def reset(self) -> None:
+        """Reset agent state (no-op for stateless agent)."""
+        pass
+    
+    def set_deterministic(self, deterministic: bool) -> None:
+        """Set whether to use deterministic or stochastic actions.
+        
+        Args:
+            deterministic: If True, always select highest probability action
+        """
+        self.deterministic = deterministic
+    
+    def get_model_info(self) -> Dict[str, Any]:
+        """Get information about the loaded model.
+        
+        Returns:
+            Dictionary with model information
+        """
+        if not hasattr(self, 'model') or self.model is None:
+            return {'model_loaded': False}
+        
+        info = {
+            'model_loaded': True,
+            'model_path': self.model_path,
+            'action_space_size': self.model.action_space.n,
+            'observation_space_shape': self.model.observation_space.shape,
+            'policy_type': type(self.model.policy).__name__,
+            'deterministic': self.deterministic,
         }
+        
+        # Add training info if available
+        try:
+            if hasattr(self.model, 'num_timesteps'):
+                info['training_timesteps'] = self.model.num_timesteps
+        except:
+            pass
+        
+        return info
+    
+    def validate_compatibility(self, observation_space, action_space) -> Dict[str, bool]:
+        """Validate agent compatibility with environment.
+        
+        Args:
+            observation_space: Environment observation space
+            action_space: Environment action space
+            
+        Returns:
+            Dictionary with compatibility checks
+        """
+        if not hasattr(self, 'model') or self.model is None:
+            return {'model_loaded': False}
+        
+        checks = {
+            'model_loaded': True,
+            'action_space_compatible': action_space.n == 1365,
+            'observation_space_compatible': (
+                observation_space.shape == self.model.observation_space.shape
+            ),
+            'is_fixed_action_space': action_space.n == 1365,
+        }
+        
+        checks['fully_compatible'] = all([
+            checks['action_space_compatible'],
+            checks['observation_space_compatible'],
+            checks['is_fixed_action_space']
+        ])
+        
+        return checks
 
-        spans: Dict[str, Tuple[int, int]] = {}
-        cursor = 0
-        for name in self._feature_names_order:
-            length = sizes[name]
-            spans[name] = (cursor, cursor + length)
-            cursor += length
-        return spans
 
-    def _prepare_feature_mapping(self) -> None:
-        """Precompute feature spans for env and model to enable fast conversion."""
-        if self.env_obs_config is None or self.model_obs_config is None:
-            self._mapping_ready = False
-            return
-        # Ensure internal sizes are up to date
-        self.env_obs_config.__post_init__()
-        self.model_obs_config.__post_init__()
-        self._feature_spans_env = self._compute_feature_spans(self.env_obs_config)
-        self._feature_spans_model = self._compute_feature_spans(self.model_obs_config)
-        self._mapping_ready = True
+class PPOAgentEnsemble:
+    """Ensemble of multiple fixed action PPO agents.
+    
+    This can be used for more robust decision making by combining
+    predictions from multiple trained models.
+    """
+    
+    def __init__(self, model_paths: list, name: str = "PPOEnsemble"):
+        """Initialize ensemble of PPO agents.
+        
+        Args:
+            model_paths: List of paths to trained models
+            name: Ensemble name
+        """
+        self.name = name
+        self.agents = []
+        
+        for i, path in enumerate(model_paths):
+            agent = PPOAgent(
+                model_path=path,
+                name=f"{name}_Agent_{i}",
+                deterministic=True
+            )
+            self.agents.append(agent)
+        
+        print(f"✅ Created ensemble with {len(self.agents)} agents")
+    
+    def get_action(self, observation: np.ndarray, action_mask: Optional[np.ndarray] = None) -> int:
+        """Get action using ensemble voting.
+        
+        Args:
+            observation: Game observation
+            action_mask: Legal action mask
+            
+        Returns:
+            Most voted action ID
+        """
+        if not self.agents:
+            raise ValueError("No agents in ensemble")
+        
+        # Get predictions from all agents
+        actions = []
+        for agent in self.agents:
+            try:
+                action = agent.get_action(observation, action_mask)
+                actions.append(action)
+            except Exception as e:
+                print(f"Warning: Agent {agent.name} failed: {e}")
+        
+        if not actions:
+            raise RuntimeError("All agents failed to predict")
+        
+        # Return most common action (simple voting)
+        unique_actions, counts = np.unique(actions, return_counts=True)
+        return int(unique_actions[np.argmax(counts)])
+    
+    def get_consensus_info(self, observation: np.ndarray, action_mask: Optional[np.ndarray] = None) -> Dict[str, Any]:
+        """Get detailed consensus information from ensemble.
+        
+        Args:
+            observation: Game observation
+            action_mask: Legal action mask
+            
+        Returns:
+            Dictionary with ensemble consensus details
+        """
+        predictions = []
+        
+        for agent in self.agents:
+            try:
+                info = agent.get_action_with_info(observation, action_mask)
+                predictions.append(info)
+            except Exception as e:
+                print(f"Warning: Agent {agent.name} failed: {e}")
+        
+        if not predictions:
+            raise RuntimeError("All agents failed to predict")
+        
+        # Analyze consensus
+        actions = [p['action'] for p in predictions]
+        unique_actions, counts = np.unique(actions, return_counts=True)
+        consensus_action = int(unique_actions[np.argmax(counts)])
+        consensus_strength = np.max(counts) / len(actions)
+        
+        return {
+            'consensus_action': consensus_action,
+            'consensus_strength': consensus_strength,
+            'individual_actions': actions,
+            'num_agents': len(self.agents),
+            'action_distribution': dict(zip(unique_actions.tolist(), counts.tolist())),
+            'all_predictions': predictions
+        }

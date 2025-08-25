@@ -1,7 +1,7 @@
-"""Integration tests for fixed action space system.
+"""Integration tests for Big Two RL system.
 
 This module provides comprehensive integration tests to validate that the
-fixed action space system works correctly across all components.
+Big Two RL system works correctly across all components.
 """
 
 import numpy as np
@@ -15,23 +15,23 @@ import time
 from bigtwo_rl.core.action_space import BigTwoActionSpace, HandType
 from bigtwo_rl.core.action_system import BigTwoActionSystem
 from bigtwo_rl.core.card_mapping import CardMapper, ActionTranslator
-from bigtwo_rl.core.fixed_action_wrapper import FixedActionBigTwoWrapper
+from bigtwo_rl.core.bigtwo_wrapper import BigTwoWrapper
 from bigtwo_rl.core.bigtwo import ToyBigTwoFullRules
 
 # Import training components
-from bigtwo_rl.training.fixed_action_trainer import FixedActionTrainer
+from bigtwo_rl.training.trainer import Trainer
 from bigtwo_rl.training.rewards import DefaultReward
 from bigtwo_rl.training.hyperparams import FastExperimentalConfig
 from bigtwo_rl.core.observation_builder import minimal_observation
 
 # Import agent components
-from bigtwo_rl.agents.fixed_action_ppo_agent import FixedActionPPOAgent
-from bigtwo_rl.agents.fixed_action_random_agent import FixedActionRandomAgent
-from bigtwo_rl.agents.fixed_action_greedy_agent import FixedActionGreedyAgent
+from bigtwo_rl.agents.ppo_agent import PPOAgent
+from bigtwo_rl.agents.random_agent import RandomAgent
+from bigtwo_rl.agents.greedy_agent import GreedyAgent
 
 # Import evaluation components
-from bigtwo_rl.evaluation.fixed_action_tournament import FixedActionTournament
-from bigtwo_rl.evaluation.fixed_action_evaluator import FixedActionEvaluator
+from bigtwo_rl.evaluation.tournament import Tournament
+from bigtwo_rl.evaluation.evaluator import Evaluator
 
 
 class TestActionSpaceIntegration:
@@ -181,9 +181,10 @@ class TestWrapperIntegration:
     
     def test_fixed_action_wrapper_basic_functionality(self):
         """Test basic wrapper functionality."""
-        wrapper = FixedActionBigTwoWrapper(
+        wrapper = BigTwoWrapper(
             observation_config=minimal_observation(),
-            games_per_episode=1
+            games_per_episode=1,
+            reward_function=DefaultReward()
         )
         
         # Test initialization
@@ -197,7 +198,7 @@ class TestWrapperIntegration:
         assert "current_player" in info
         
         # Test action mask
-        action_mask = wrapper.get_action_mask()
+        action_mask = wrapper.action_masks()
         assert action_mask.shape == (1365,)
         assert action_mask.dtype == bool
         assert np.sum(action_mask) > 0  # Should have some legal actions
@@ -216,9 +217,10 @@ class TestWrapperIntegration:
     
     def test_wrapper_episode_completion(self):
         """Test wrapper handles episode completion correctly."""
-        wrapper = FixedActionBigTwoWrapper(
+        wrapper = BigTwoWrapper(
             observation_config=minimal_observation(),
-            games_per_episode=2  # Short episode for testing
+            games_per_episode=2,  # Short episode for testing
+            reward_function=DefaultReward()
         )
         
         obs, info = wrapper.reset()
@@ -227,7 +229,7 @@ class TestWrapperIntegration:
         max_steps = 500  # Safety limit
         
         while not done and step_count < max_steps:
-            action_mask = wrapper.get_action_mask()
+            action_mask = wrapper.action_masks()
             legal_actions = np.where(action_mask)[0]
             
             if len(legal_actions) == 0:
@@ -248,7 +250,7 @@ class TestTrainingIntegration:
     def test_training_integration(self):
         """Test that training works end-to-end with fixed actions."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            trainer = FixedActionTrainer(
+            trainer = Trainer(
                 reward_function=DefaultReward(),
                 hyperparams=FastExperimentalConfig(),
                 observation_config=minimal_observation()
@@ -268,14 +270,14 @@ class TestTrainingIntegration:
             # Test model can make predictions
             env = trainer._make_env()
             obs, _ = env.reset()
-            action_mask = env.get_action_mask()
+            action_mask = env.action_masks()
             
             action, _ = model.predict(obs, deterministic=True)
             assert 0 <= action < 1365, f"Action should be in valid range, got {action}"
     
     def test_trainer_validation(self):
         """Test trainer validates fixed action space correctly."""
-        trainer = FixedActionTrainer(
+        trainer = Trainer(
             reward_function=DefaultReward(),
             hyperparams=FastExperimentalConfig(),
             observation_config=minimal_observation()
@@ -287,7 +289,7 @@ class TestTrainingIntegration:
         
         # Test action mask
         obs, _ = env.reset()
-        action_mask = env.get_action_mask()
+        action_mask = env.action_masks()
         assert action_mask.shape == (1365,)
         assert np.sum(action_mask) > 0
 
@@ -297,7 +299,7 @@ class TestAgentIntegration:
     
     def test_random_agent_functionality(self):
         """Test random agent works with fixed action space."""
-        agent = FixedActionRandomAgent("TestRandom")
+        agent = RandomAgent("TestRandom")
         
         # Create test observation and mask
         obs = np.zeros(57)  # Minimal observation size
@@ -316,7 +318,7 @@ class TestAgentIntegration:
     
     def test_greedy_agent_functionality(self):
         """Test greedy agent works with fixed action space."""
-        agent = FixedActionGreedyAgent("TestGreedy", strategy="lowest_first")
+        agent = GreedyAgent("TestGreedy", strategy="lowest_first")
         
         # Create test observation and mask
         obs = np.zeros(57)
@@ -334,14 +336,14 @@ class TestAgentIntegration:
     def test_agent_compatibility_validation(self):
         """Test agent compatibility validation."""
         agents = [
-            FixedActionRandomAgent("Random1"),
-            FixedActionRandomAgent("Random2"),
-            FixedActionGreedyAgent("Greedy1"),
-            FixedActionGreedyAgent("Greedy2", strategy="clear_hand")
+            RandomAgent("Random1"),
+            RandomAgent("Random2"),
+            GreedyAgent("Greedy1"),
+            GreedyAgent("Greedy2", strategy="clear_hand")
         ]
         
         # Should not raise any exceptions
-        tournament = FixedActionTournament(agents, verbose=False)
+        tournament = Tournament(agents, verbose=False)
         assert len(tournament.agents) == 4
 
 
@@ -351,13 +353,13 @@ class TestEvaluationIntegration:
     def test_tournament_basic_functionality(self):
         """Test tournament can run basic games."""
         agents = [
-            FixedActionRandomAgent("Random1"),
-            FixedActionRandomAgent("Random2"),
-            FixedActionGreedyAgent("Greedy1"),
-            FixedActionGreedyAgent("Greedy2")
+            RandomAgent("Random1"),
+            RandomAgent("Random2"),
+            GreedyAgent("Greedy1"),
+            GreedyAgent("Greedy2")
         ]
         
-        tournament = FixedActionTournament(agents, verbose=False)
+        tournament = Tournament(agents, verbose=False)
         
         # Run a single game
         result = tournament.play_game(agents)
@@ -370,16 +372,16 @@ class TestEvaluationIntegration:
     def test_series_evaluation(self):
         """Test series evaluation works correctly."""
         agents = [
-            FixedActionRandomAgent("Random1"),
-            FixedActionRandomAgent("Random2"),
-            FixedActionGreedyAgent("Greedy1"),
-            FixedActionGreedyAgent("Greedy2")
+            RandomAgent("Random1"),
+            RandomAgent("Random2"),
+            GreedyAgent("Greedy1"),
+            GreedyAgent("Greedy2")
         ]
         
-        evaluator = FixedActionEvaluator(num_games=5, verbose=False)  # Small number for testing
+        evaluator = Evaluator(num_games=5, verbose=False)  # Small number for testing
         
         # This would normally test against a trained model, but we'll test the framework
-        tournament = FixedActionTournament(agents, verbose=False)
+        tournament = Tournament(agents, verbose=False)
         
         # Test game execution
         results = []
@@ -406,14 +408,15 @@ class TestSystemIntegration:
         # So we'll test the components can be connected without running full training
         
         # 1. Test wrapper creation
-        wrapper = FixedActionBigTwoWrapper(
+        wrapper = BigTwoWrapper(
             observation_config=minimal_observation(),
-            games_per_episode=1
+            games_per_episode=1,
+            reward_function=DefaultReward()
         )
         assert wrapper.action_space.n == 1365
         
         # 2. Test trainer setup
-        trainer = FixedActionTrainer(
+        trainer = Trainer(
             reward_function=DefaultReward(),
             hyperparams=FastExperimentalConfig(),
             observation_config=minimal_observation()
@@ -423,28 +426,38 @@ class TestSystemIntegration:
         
         # 3. Test agent creation (without actual model)
         agents = [
-            FixedActionRandomAgent("Random1"),
-            FixedActionGreedyAgent("Greedy1"),
+            RandomAgent("Random1"),
+            GreedyAgent("Greedy1"),
         ]
         
         # 4. Test evaluation setup
-        tournament = FixedActionTournament(agents[:2] * 2, verbose=False)  # Duplicate to get 4 agents
+        tournament = Tournament(agents[:2] * 2, verbose=False)  # Duplicate to get 4 agents
         assert len(tournament.agents) == 4
     
     def test_configuration_integration(self):
         """Test configuration system integration."""
-        from bigtwo_rl.config import (
-            get_wrapper_class, get_trainer_class, 
-            create_trainer, create_wrapper
+        # Test that main components are accessible from package
+        from bigtwo_rl import BigTwoWrapper, Trainer
+        from bigtwo_rl.agents import RandomAgent, GreedyAgent
+        from bigtwo_rl.evaluation import Tournament, Evaluator
+        
+        # Test factory functions from trainer module work
+        from bigtwo_rl.training.trainer import create_trainer
+        
+        trainer = create_trainer(
+            reward_function=DefaultReward(),
+            hyperparams=FastExperimentalConfig(),
+            observation_config=minimal_observation()
         )
+        assert isinstance(trainer, Trainer)
         
-        # Test factory functions work
-        wrapper_class = get_wrapper_class()
-        trainer_class = get_trainer_class()
-        
-        # Should return fixed action classes by default
-        assert wrapper_class.__name__ in ['FixedActionBigTwoWrapper', 'BigTwoRLWrapper']
-        assert trainer_class.__name__ in ['FixedActionTrainer', 'Trainer']
+        # Test main classes can be instantiated
+        wrapper = BigTwoWrapper(
+            observation_config=minimal_observation(),
+            games_per_episode=1,
+            reward_function=DefaultReward()
+        )
+        assert wrapper.action_space.n == 1365
     
     def test_performance_basic(self):
         """Test basic performance characteristics."""

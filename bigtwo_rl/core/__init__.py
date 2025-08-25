@@ -1,12 +1,16 @@
 """Core Big Two game components."""
 
 from .bigtwo import ToyBigTwoFullRules
-from .rl_wrapper import BigTwoRLWrapper
+from .bigtwo_wrapper import BigTwoWrapper
 from .episode_manager import EpisodeManager
 from .card_utils import *
 
+# Backward compatibility
+BigTwoRLWrapper = BigTwoWrapper
+
 __all__ = [
     "ToyBigTwoFullRules",
-    "BigTwoRLWrapper",
+    "BigTwoWrapper",
+    "BigTwoRLWrapper",  # Backward compatibility
     "EpisodeManager",
 ]

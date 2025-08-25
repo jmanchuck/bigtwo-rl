@@ -1,62 +1,54 @@
-"""Big Two RL Environment with True Self-Play Training.
+"""Big Two RL Environment wrapper with 1,365-action space.
 
-This wrapper provides both single-player training (controlled player + opponents) and true self-play
-training (all 4 players use same network) with comprehensive logging and metrics.
+This wrapper provides a clean interface for training RL agents on Big Two with
+a fixed action space of exactly 1,365 actions and proper action masking.
 """
+
+import inspect
+from typing import Any
 
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
-from typing import Dict, Any, Optional, Tuple, List
 
-# BaseReward imported dynamically to avoid circular imports
+from bigtwo_rl.training.rewards.base_reward import BaseReward
+
+from .action_system import BigTwoActionSystem
 from .bigtwo import ToyBigTwoFullRules
 from .episode_manager import EpisodeManager
 from .observation_builder import ObservationConfig, ObservationVectorizer
-import inspect
 
 NUM_PLAYERS = 4
 
 
-class BigTwoRLWrapper(gym.Env):
-    """Gymnasium-compatible RL wrapper for Big Two with true self-play support.
+class BigTwoWrapper(gym.Env):
+    """Gymnasium wrapper for Big Two with 1,365-action space.
 
-    This wrapper provides a clean interface for training RL agents on Big Two using true self-play
-    where all 4 players in the same game use the same neural network. This enables genuine
-    self-play dynamics, co-evolution, and 4x more training data per game.
-
-    Key Features:
-    - True self-play training (all 4 players use same network)
-    - Multi-game episode training with configurable episode lengths
-    - Comprehensive logging: 27+ metrics for strategy analysis
-    - Custom reward functions with move bonuses and episode bonuses
-    - Game context tracking for strategic move evaluation
-    - Move type tracking (singles, pairs, five-card hands)
-    - Episode performance metrics and rankings
-
-    Architecture:
-    - EpisodeManager: Handles multi-game episode tracking and comprehensive metrics
-    - ObservationVectorizer: Converts game state to configurable feature vectors
-    - True multi-agent: Network decides for whichever player's turn it is
+    This wrapper provides a clean interface for training RL agents on Big Two
+    with optimal performance through:
+    - Fixed action space of exactly 1,365 actions
+    - Proper action masking using game rules
+    - Direct action ID to move translation
+    - Multiprocessing-safe lazy initialization
     """
 
     def __init__(
         self,
         observation_config: ObservationConfig,
-        reward_function: Optional[
-            Any
-        ] = None,  # BaseReward instance (optional to avoid circular import)
+        reward_function: BaseReward,
         num_players: int = 4,
         games_per_episode: int = 10,
         track_move_history: bool = False,
     ):
-        """Initialize Big Two RL wrapper with true self-play.
+        """Initialize Big Two RL wrapper.
 
         Args:
             observation_config: Observation configuration
-            games_per_episode: Number of games per training episode
             reward_function: BaseReward instance for custom rewards
+            num_players: Number of players (must be 4)
+            games_per_episode: Number of games per training episode
             track_move_history: Whether to track detailed move history
+
         """
         super().__init__()
 
@@ -72,10 +64,13 @@ class BigTwoRLWrapper(gym.Env):
         # Store config for lazy initialization (multiprocessing-safe)
         self.obs_config = observation_config
 
+        # Fixed action space (breaking change!)
+        self.action_space = spaces.Discrete(1365)
+        self.action_system = BigTwoActionSystem()
+
         # Initialize observation space immediately (needed for PPO model creation)
         temp_vectorizer = ObservationVectorizer(observation_config)
         self.observation_space = temp_vectorizer.gymnasium_space
-        self.action_space = spaces.Discrete(2000)
 
         # Lazy initialization for game components (will be created in reset())
         self.game = None
@@ -85,9 +80,7 @@ class BigTwoRLWrapper(gym.Env):
         # True self-play experience tracking
         self.player_experiences = []  # List of experiences for each player
         self.current_obs_per_player = {}  # Store observations when they act
-        self._current_obs: Optional[np.ndarray] = (
-            None  # Track latest observation for convenience
-        )
+        self._current_obs: np.ndarray | None = None  # Track latest observation
 
         # Episode tracking
         self.games_completed = 0
@@ -112,8 +105,10 @@ class BigTwoRLWrapper(gym.Env):
             )
 
     def reset(
-        self, seed: Optional[int] = None, options: Optional[Dict[str, Any]] = None
-    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+        self,
+        seed: int | None = None,
+        options: dict[str, Any] | None = None,
+    ) -> tuple[np.ndarray, dict[str, Any]]:
         """Reset the environment to start a new multi-game episode.
 
         Args:
@@ -122,6 +117,7 @@ class BigTwoRLWrapper(gym.Env):
 
         Returns:
             Tuple of (initial_observation, info_dict) from current player
+
         """
         if seed is not None:
             np.random.seed(seed)
@@ -140,30 +136,28 @@ class BigTwoRLWrapper(gym.Env):
         self.games_completed = 0
         self.episode_complete = False
 
-        # Get observation from current player's perspective (respects 3♦ starting rule)
+        # Get observation from current player's perspective
         obs = self._get_observation(self.game.current_player)
         self._current_obs = obs
 
         info = {
-            "current_player": self.game.current_player,  # Return actual current player
+            "current_player": self.game.current_player,
             "games_completed": self.games_completed,
             "episode_complete": self.episode_complete,
-            "legal_moves_count": len(self.game.legal_moves(self.game.current_player)),
+            "legal_actions_count": np.sum(self.get_action_mask()),
         }
 
         return obs, info
 
-    def step(self, action: int) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
-        """Execute one step from current player's perspective with true self-play.
-
-        This implements true self-play where the same network controls whichever player's
-        turn it is, respecting Big Two rules like the 3♦ starting requirement.
+    def step(self, action_id: int) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
+        """Execute fixed action ID in the game.
 
         Args:
-            action: Action index for current player
+            action_id: Action ID from 0-1364
 
         Returns:
-            Tuple of (observation, reward, terminated, truncated, info) for current player
+            Tuple of (observation, reward, terminated, truncated, info)
+
         """
         # Ensure initialized
         self._ensure_initialized()
@@ -177,71 +171,124 @@ class BigTwoRLWrapper(gym.Env):
         # Store current player's observation
         current_obs = self._get_observation(current_player)
 
-        # Execute current player's action
-        player_reward = self._execute_player_action(current_player, action, current_obs)
+        # Validate action is legal
+        action_mask = self.get_action_mask()
+        if not action_mask[action_id]:
+            # Force a legal action (for training stability)
+            legal_actions = np.where(action_mask)[0]
+            if len(legal_actions) > 0:
+                action_id = legal_actions[0]  # Take first legal action
+            else:
+                raise ValueError("No legal actions available")
 
-        # Check if game or episode ended after this action
+        # Translate action to game move
+        player_hand = self.game.hands[current_player]
+        game_move = self.action_system.translate_action_to_game_move(action_id, player_hand)
+
+        # Execute in game engine (reuse existing step logic)
+        player_reward = self._execute_game_move(current_player, game_move, current_obs, action_id)
+
+        # Handle game/episode completion
         if self.game.done:
-            # Process final rewards for all players
             self._apply_final_rewards()
-
-            # Check if episode is complete
             self.games_completed += 1
+
             if self.games_completed >= self.games_per_episode:
                 self.episode_complete = True
                 return self._finalize_episode()
-            else:
-                # Start next game in episode
-                self.game.reset()
-                self.obs_vectorizer.reset()
-                # Return observation for new game's starting player
-                next_obs = self._get_observation(self.game.current_player)
-                self._current_obs = next_obs
-                terminated = False
-        else:
-            # Game continues - return observation for next player
-            next_obs = self._get_observation(self.game.current_player)
-            self._current_obs = next_obs
-            terminated = False
+            # Start next game
+            self.game.reset()
+            self.obs_vectorizer.reset()
+
+        # Return observation for next player
+        next_obs = self._get_observation(self.game.current_player)
+        self._current_obs = next_obs
 
         info = {
             "current_player": self.game.current_player,
             "games_completed": self.games_completed,
-            "episode_complete": terminated,
-            "legal_moves_count": len(self.game.legal_moves(self.game.current_player))
-            if not terminated
-            else 0,
+            "episode_complete": self.episode_complete,
+            "action_was_legal": action_mask[action_id],
+            "legal_actions_count": np.sum(self.get_action_mask()) if not self.episode_complete else 0,
         }
 
-        return next_obs, player_reward, terminated, False, info
+        return next_obs, player_reward, self.episode_complete, False, info
+
+    def _execute_game_move(self, player: int, game_move: np.ndarray, obs: np.ndarray, action_id: int) -> float:
+        """Execute game move and return reward (adapted for fixed actions)."""
+        # Convert game move to legacy format for compatibility with existing game engine
+        if np.any(game_move):  # Not a pass
+            # Find legal moves and match with our game move
+            legal_moves = self.game.legal_moves(player)
+
+            # Try to find exact match
+            for i, legal_move in enumerate(legal_moves):
+                if np.array_equal(game_move, legal_move):
+                    # Use old step logic with index i
+                    return self._execute_player_action(player, i, obs, action_id)
+
+            # If no exact match, this might be an invalid action
+            # Try to find pass move (all-zeros array)
+            pass_move = np.zeros(52, dtype=bool)
+            for i, legal_move in enumerate(legal_moves):
+                if np.array_equal(legal_move, pass_move):
+                    return self._execute_player_action(player, i, obs, action_id)
+
+            # If no pass available, force first legal move
+            if len(legal_moves) > 0:
+                return self._execute_player_action(player, 0, obs, action_id)
+            raise ValueError("No legal moves available")
+        # Pass move - find pass in legal moves
+        legal_moves = self.game.legal_moves(player)
+        pass_move = np.zeros(52, dtype=bool)
+        for i, legal_move in enumerate(legal_moves):
+            if np.array_equal(legal_move, pass_move):
+                return self._execute_player_action(player, i, obs, action_id)
+
+        # If pass not allowed, force first legal move
+        if len(legal_moves) > 0:
+            return self._execute_player_action(player, 0, obs, action_id)
+        raise ValueError("No legal moves available")
 
     def _execute_player_action(
-        self, player: int, action: int, current_obs: np.ndarray
+        self,
+        player: int,
+        legacy_action: int,
+        current_obs: np.ndarray,
+        fixed_action_id: int,
     ) -> float:
         """Execute an action for a specific player and collect their experience.
 
         Args:
             player: Player index (0-3)
-            action: Action index to execute
+            legacy_action: Legacy action index for game engine
             current_obs: Player's observation before the action
+            fixed_action_id: Fixed action ID for experience tracking
 
         Returns:
             Reward received by the player for this action
+
         """
-        # Validate action is within legal moves bounds
+        # Validate legacy action is within legal moves bounds
         legal_moves = self.game.legal_moves(player)
-        if action >= len(legal_moves):
+        max_action = len(legal_moves)  # Pass action index
+
+        if legacy_action > max_action:
             # Invalid action - force a valid action
             if len(legal_moves) > 0:
-                action = 0  # Take first legal move
+                legacy_action = 0  # Take first legal move
             else:
-                raise ValueError(f"No legal moves available for player {player}")
+                legacy_action = max_action  # Force pass
+        elif legacy_action < 0:
+            # Negative action - force first legal move or pass
+            legacy_action = 0 if len(legal_moves) > 0 else max_action
 
         # Track move metrics and bonuses BEFORE executing the move
-        self._track_move_metrics_and_bonuses(legal_moves, action, player)
+        if legacy_action < len(legal_moves):
+            self._track_move_metrics_and_bonuses(legal_moves, legacy_action, player)
 
         # Execute action in the game
-        game_obs_dict, rewards_list, game_done, info_dict = self.game.step(action)
+        game_obs_dict, rewards_list, game_done, info_dict = self.game.step(legacy_action)
 
         # Increment step counter for episode metrics
         self.episode_manager.increment_steps()
@@ -249,17 +296,17 @@ class BigTwoRLWrapper(gym.Env):
         # Get reward for this player (immediate reward, final rewards handled later)
         player_reward = 0.0  # Only final rewards count to avoid double-counting
 
-        # Store this player's experience for training
+        # Store this player's experience for training (using fixed action ID)
         self.player_experiences.append(
             {
                 "player": player,
                 "observation": current_obs,
-                "action": action,
+                "action": fixed_action_id,  # Store fixed action ID
                 "reward": player_reward,  # Will be updated with final rewards later
                 "done": game_done,
                 "info": info_dict,
-                "legal_moves_count": len(legal_moves),
-            }
+                "legal_moves_count": np.sum(self.get_action_mask()),
+            },
         )
 
         return player_reward
@@ -267,9 +314,7 @@ class BigTwoRLWrapper(gym.Env):
     def _apply_final_rewards(self):
         """Apply final rewards to all collected experiences when game ends."""
         # Calculate cards left for all players at game end
-        all_cards_left = [
-            int(np.sum(self.game.hands[i])) for i in range(self.num_players)
-        ]
+        all_cards_left = [int(np.sum(self.game.hands[i])) for i in range(self.num_players)]
 
         # Find winner and process with episode manager
         winner_player, _ = self.episode_manager.handle_game_end(all_cards_left)
@@ -292,7 +337,7 @@ class BigTwoRLWrapper(gym.Env):
                     final_rewards.append(1.0)  # Winner gets +1
                 else:
                     final_rewards.append(
-                        -0.1 * all_cards_left[i]
+                        -0.1 * all_cards_left[i],
                     )  # Penalty for cards left
 
         # Update experiences with final rewards
@@ -301,10 +346,24 @@ class BigTwoRLWrapper(gym.Env):
                 player_idx = exp["player"]
                 exp["reward"] = final_rewards[player_idx]
 
-    def _get_final_observation(self) -> np.ndarray:
-        """Get final observation for episode termination."""
-        # Return dummy observation with correct shape
-        return np.zeros(self.observation_space.shape, dtype=np.float32)
+    def get_action_mask(self) -> np.ndarray:
+        """Get 1,365-dimensional legal action mask.
+
+        Returns:
+            Boolean array of shape (1365,) where True = legal action
+
+        """
+        if self.game.done or self.episode_complete:
+            return np.zeros(self.action_space.n, dtype=bool)
+
+        current_player = self.game.current_player
+        player_hand = self.game.hands[current_player]
+
+        return self.action_system.get_legal_action_mask(self.game, player_hand)
+
+    def action_masks(self) -> np.ndarray:
+        """Compatibility alias for ActionMasker wrapper."""
+        return self.get_action_mask()
 
     def _get_observation(self, player: int) -> np.ndarray:
         """Get observation for specific player using observation vectorizer.
@@ -314,6 +373,7 @@ class BigTwoRLWrapper(gym.Env):
 
         Returns:
             Observation vector for the player
+
         """
         # Temporarily set current player to get observation from their perspective
         original_player = self.game.current_player
@@ -329,17 +389,14 @@ class BigTwoRLWrapper(gym.Env):
         return self.obs_vectorizer.vectorize(raw_obs, self.game)
 
     def _track_move_metrics_and_bonuses(
-        self, legal_moves: List[np.ndarray], action: int, current_player: int
+        self,
+        legal_moves: list[np.ndarray],
+        action: int,
+        current_player: int,
     ) -> None:
-        """Track move bonuses and move types for comprehensive metrics.
-
-        Args:
-            legal_moves: List of legal moves available
-            action: Index of the selected move
-            current_player: Player making the move
-        """
+        """Track move bonuses and move types for comprehensive metrics."""
         if action >= len(legal_moves):
-            return  # Invalid action, nothing to track
+            return  # Pass action, nothing to track
 
         selected_move = legal_moves[action]
 
@@ -352,7 +409,8 @@ class BigTwoRLWrapper(gym.Env):
 
             # Calculate and track move bonus if reward function supports it
             if self.reward_function is not None and hasattr(
-                self.reward_function, "move_bonus"
+                self.reward_function,
+                "move_bonus",
             ):
                 # Build game context for strategic move evaluation
                 game_context = self._build_game_context(current_player)
@@ -361,22 +419,16 @@ class BigTwoRLWrapper(gym.Env):
                 sig = inspect.signature(self.reward_function.move_bonus)
                 if "game_context" in sig.parameters:
                     move_bonus = self.reward_function.move_bonus(
-                        move_cards, game_context
+                        move_cards,
+                        game_context,
                     )
                 else:
                     move_bonus = self.reward_function.move_bonus(move_cards)
 
                 self.episode_manager.add_move_bonus(move_bonus)
 
-    def _build_game_context(self, player_idx: int) -> Dict[str, Any]:
-        """Build game context dictionary for move quality evaluation.
-
-        Args:
-            player_idx: Index of the player making the move
-
-        Returns:
-            Dict containing game state information for strategic evaluation
-        """
+    def _build_game_context(self, player_idx: int) -> dict[str, Any]:
+        """Build game context dictionary for move quality evaluation."""
         context = {}
 
         # Get player's remaining hand
@@ -394,10 +446,10 @@ class BigTwoRLWrapper(gym.Env):
 
         # Determine game phase based on card counts
         min_hand_size = min(
-            [int(np.sum(self.game.hands[i])) for i in range(self.num_players)]
+            [int(np.sum(self.game.hands[i])) for i in range(self.num_players)],
         )
         max_hand_size = max(
-            [int(np.sum(self.game.hands[i])) for i in range(self.num_players)]
+            [int(np.sum(self.game.hands[i])) for i in range(self.num_players)],
         )
 
         if max_hand_size > 10:
@@ -417,34 +469,28 @@ class BigTwoRLWrapper(gym.Env):
 
         # Get current turn and position info
         context["current_player"] = self.game.current_player
-        context["controlled_player"] = (
-            player_idx  # In self-play, current player is "controlled"
-        )
+        context["controlled_player"] = player_idx  # In self-play, current player is "controlled"
         context["passes_in_row"] = self.game.passes_in_row
 
         # Get game progress metrics
         total_cards_dealt = self.num_players * 13  # Standard 52 cards, 4 players
         total_cards_remaining = sum(
-            [int(np.sum(self.game.hands[i])) for i in range(self.num_players)]
+            [int(np.sum(self.game.hands[i])) for i in range(self.num_players)],
         )
         cards_played_total = total_cards_dealt - total_cards_remaining
-        context["cards_played_ratio"] = (
-            cards_played_total / total_cards_dealt if total_cards_dealt > 0 else 0
-        )
+        context["cards_played_ratio"] = cards_played_total / total_cards_dealt if total_cards_dealt > 0 else 0
 
         return context
 
-    def _handle_episode_completion(
-        self,
-    ) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
+    def _handle_episode_completion(self) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
         """Handle when step is called but episode is already complete."""
         return self._finalize_episode()
 
-    def _finalize_episode(self) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
+    def _finalize_episode(self) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
         """Finalize episode with episode bonus and comprehensive metrics."""
-        # Calculate episode bonus using episode manager (applies to Player 0)
+        # Calculate episode bonus using episode manager
         episode_bonus = float(
-            self.episode_manager.calculate_episode_bonus(self.reward_function)
+            self.episode_manager.calculate_episode_bonus(self.reward_function),
         )
 
         # Return dummy observation and signal episode complete
@@ -464,70 +510,35 @@ class BigTwoRLWrapper(gym.Env):
 
         return dummy_obs, episode_bonus, True, False, info
 
-    def get_action_mask(self) -> np.ndarray:
-        """Get action mask for current player.
-
-        Returns:
-            Boolean mask for legal actions (True = legal, False = illegal)
-        """
-        # Ensure initialized
-        self._ensure_initialized()
-
-        if self.game.done or self.episode_complete:
-            # If game/episode is done, no actions are legal
-            return np.zeros(self.action_space.n, dtype=bool)
-
-        # Return action mask for current player (respects 3♦ rule)
-        legal_moves = self.game.legal_moves(self.game.current_player)
-        mask = np.zeros(self.action_space.n, dtype=bool)
-
-        # Set legal action indices to True
-        for i in range(min(len(legal_moves), self.action_space.n)):
-            mask[i] = True
-
-        return mask
-
-    def action_masks(self) -> np.ndarray:
-        """Alias for compatibility with ActionMasker wrapper."""
-        return self.get_action_mask()
-
-    def get_episode_metrics(self) -> Dict[str, float]:
-        """Get episode metrics from episode manager.
-
-        Returns:
-            Dictionary of comprehensive Big Two episode metrics
-        """
+    def get_episode_metrics(self) -> dict[str, float]:
+        """Get episode metrics from episode manager."""
         if self.episode_manager is None:
             return {}
         return self.episode_manager.get_episode_metrics()
 
-    def render(self, mode: str = "human") -> Optional[np.ndarray]:
+    def render(self, mode: str = "human") -> np.ndarray | None:
         """Render environment (basic game state info)."""
         if mode == "human":
-            # Game state info available in self.game attributes
             pass
         return None
 
     def close(self) -> None:
         """Close environment (no resources to clean up)."""
-        pass
 
     @property
     def current_obs(self) -> np.ndarray:
         """Latest observation vector for convenience in diagnostics/tests."""
         if self._current_obs is None:
-            # Provide a zero observation with correct shape if not yet initialized
             return np.zeros(self.observation_space.shape, dtype=np.float32)
         return self._current_obs
 
-    # Backward compatibility property for tournament/evaluation code
+    # Backward compatibility properties
     @property
     def env(self):
         """Access to underlying game engine for backward compatibility."""
         self._ensure_initialized()
         return self.game
 
-    # Backward compatibility properties to expose episode manager state
     @property
     def games_played(self) -> int:
         """Total games played in current episode."""
@@ -535,7 +546,7 @@ class BigTwoRLWrapper(gym.Env):
 
     @property
     def games_won(self) -> int:
-        """Number of games won in current episode (episode manager tracks this)."""
+        """Number of games won in current episode."""
         if self.episode_manager is None:
             return 0
         return self.episode_manager.games_won

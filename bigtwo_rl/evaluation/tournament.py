@@ -1,480 +1,526 @@
-"""Tournament system for Big Two agents."""
+"""Tournament system for Big Two 1,365-action space.
 
-import multiprocessing as mp
-import sys
+This module provides tournament and evaluation capabilities for agents
+using the 1,365-action space system with proper action masking.
+"""
 
 import numpy as np
+import multiprocessing as mp
+from typing import List, Dict, Any, Optional, Tuple
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import time
+import pickle
+import traceback
 
-from ..agents import BaseAgent, GreedyAgent, PPOAgent, RandomAgent
-from ..agents.human_agent import HumanAgent
-from ..core.observation_builder import strategic_observation
-from ..core.rl_wrapper import BigTwoRLWrapper
+from ..agents.base_agent import BaseAgent
+from ..agents.ppo_agent import PPOAgent
+from ..agents.random_agent import RandomAgent
+from ..agents.greedy_agent import GreedyAgent
+from ..core.bigtwo_wrapper import BigTwoWrapper
+from ..core.observation_builder import standard_observation
 
 
 class Tournament:
-    """High-level tournament system for Big Two agents."""
-
-    def __init__(self, agents: list[BaseAgent], n_processes: int | None = None):
-        """Initialize tournament with list of agents.
-
-        Args:
-            agents: List of BaseAgent instances to compete
-            n_processes: Number of processes for parallel execution (None = auto)
-
-        """
-        self.agents = agents
-        self.n_processes = n_processes
-
-    def run(self, num_games: int = 100) -> dict:
-        """Run round-robin tournament where each agent plays against every other agent.
-
-        Args:
-            num_games: Number of games per matchup
-
-        Returns:
-            Dict with tournament results and statistics
-
-        """
-        return run_tournament(self.agents, num_games, self.n_processes)
-
-    def run_parallel(
-        self,
-        num_games: int = 100,
-        n_processes: int | None = None,
-    ) -> dict:
-        """Run tournament with explicit parallel processing control.
-
-        Args:
-            num_games: Number of games per matchup
-            n_processes: Override default process count
-
-        Returns:
-            Dict with tournament results and statistics
-
-        """
-        processes = n_processes or self.n_processes
-        return run_tournament(self.agents, num_games, processes)
-
-    def add_agent(self, agent: BaseAgent) -> None:
-        """Add an agent to the tournament."""
-        self.agents.append(agent)
-
-    def remove_agent(self, agent_name: str) -> None:
-        """Remove an agent by name."""
-        self.agents = [a for a in self.agents if a.name != agent_name]
-
-    def list_agents(self) -> list[str]:
-        """Get list of agent names."""
-        return [agent.name for agent in self.agents]
-
-
-def play_single_game(
-    agents: list[BaseAgent],
-    env: BigTwoRLWrapper,
-) -> tuple[int, float, list[int]]:
-    """Play a single game between multiple agents.
-
-    Returns:
-        (winner_idx, reward, cards_remaining):
-            winner_idx: index of winner in agents list, or -1 if none
-            reward: terminal reward returned by env for current player
-            cards_remaining: list of number of cards remaining per player at game end
-
+    """Tournament system using 1,365-action space.
+    
+    This provides tournament functionality with proper agent validation and game execution
+    using the optimized Big Two environment.
     """
-    obs, _ = env.reset()
-    done = False
-
-    # Reset all agents and provide env reference for observation mapping
-    for agent in agents:
-        agent.reset()
-        if hasattr(agent, "set_env_reference"):
-            agent.set_env_reference(env)  # ty: ignore
-
-    while not done:
-        current_player = env.env.current_player
-        if current_player < len(agents):
-            agent = agents[current_player]
-            action_mask = env.get_action_mask()
-
-            action = agent.get_action(obs, action_mask)
-        else:
-            # Random player if not enough agents
-            action_mask = env.get_action_mask()
-            legal_actions = np.where(action_mask)[0]
-            action = np.random.choice(legal_actions) if len(legal_actions) > 0 else 0
-
-        obs, reward, done, _, info = env.step(action)
-
-        if done:
-            # Game finished - determine winner directly from hands, not from reward
-            winner_idx = -1
-            for p in range(env.env.num_players):
-                if np.sum(env.env.hands[p]) == 0:
-                    winner_idx = p
-                    break
-
-            # Record results for all agents
-            for i, agent in enumerate(agents):
-                if i < env.env.num_players:  # Only count agents that actually played
-                    agent.record_game_result(i == winner_idx)
-
-            # Capture cards remaining for each player
-            cards_remaining = [np.sum(env.env.hands[p]) for p in range(env.env.num_players)]
-            return winner_idx, reward, cards_remaining
-
-    # No winner (should not happen); capture current hand sizes
-    cards_remaining = [np.sum(env.env.hands[p]) for p in range(env.env.num_players)]
-    return -1, 0, cards_remaining
-
-
-def _serialize_agent(agent: BaseAgent) -> dict:
-    """Serialize agent for multiprocessing."""
-    if isinstance(agent, RandomAgent):
-        return {"type": "random", "name": agent.name}
-    if isinstance(agent, GreedyAgent):
-        return {"type": "greedy", "name": agent.name}
-    if isinstance(agent, PPOAgent):
-        if agent.model_path is None:
-            raise ValueError(
-                f"Cannot serialize PPOAgent '{agent.name}' without model_path",
-            )
-        return {"type": "ppo", "name": agent.name, "model_path": agent.model_path}
-    raise ValueError(f"Cannot serialize agent type: {type(agent)}")
-
-
-def _deserialize_agent(agent_config: dict) -> BaseAgent:
-    """Deserialize agent from config."""
-    agent_type = agent_config["type"]
-    name = agent_config["name"]
-
-    if agent_type == "random":
-        return RandomAgent(name)
-    if agent_type == "greedy":
-        return GreedyAgent(name)
-    if agent_type == "ppo":
-        return PPOAgent(model_path=agent_config["model_path"], name=name)
-    raise ValueError(f"Unknown agent type: {agent_type}")
-
-
-def _run_game_batch(
-    args: tuple[list[dict], int, int],
-) -> tuple[dict[str, int], dict[str, int], list[list[int]]]:
-    """Worker function to run a batch of games in parallel.
-
-    Args:
-        args: Tuple of (agent_configs, num_games, random_seed)
-
-    Returns:
-        Tuple of (wins_dict, cards_left_sum_dict, cards_history)
-
-    """
-    agent_configs, num_games, random_seed = args
-
-    # Set random seed for reproducibility
-    np.random.seed(random_seed)
-
-    # Deserialize agents
-    agents = [_deserialize_agent(config) for config in agent_configs]
-
-    # Create environment with observation space that supports all agents
-    env_obs_config = strategic_observation()
-
-    # Check if any agent is a HumanAgent to enable move history tracking
-    # Import already available at top of file
-
-    track_history = any(isinstance(agent, HumanAgent) for agent in agents)
-
-    env = BigTwoRLWrapper(
-        observation_config=env_obs_config,
-        reward_function=None,  # Use default rewards
-        games_per_episode=1,
-        track_move_history=track_history,
-    )
-
-    # Initialize tracking
-    wins = {a.name: 0 for a in agents}
-    cards_left_sum = {a.name: 0 for a in agents}
-    cards_history = []
-
-    # Run games
-    for _ in range(num_games):
-        winner_idx, _, cards_remaining = play_single_game(agents, env)
-        if winner_idx != -1:
-            wins[agents[winner_idx].name] += 1
-        # Note: winner_idx should never be -1 in Big Two, but keeping check for safety
-
-        # Accumulate cards remaining
-        for i, agent in enumerate(agents):
-            cards_left_sum[agent.name] += cards_remaining[i]
-        cards_history.append(cards_remaining)
-
-    return wins, cards_left_sum, cards_history
-
-
-def play_four_player_series(
-    agents: list[BaseAgent],
-    num_games: int = 100,
-    n_processes: int | None = None,
-) -> dict:
-    """Play a series of 4-player matches between the provided four agents.
-
-    Args:
-        agents: Exactly four agents who will play together
-        num_games: Number of games to play
-        n_processes: Number of processes to use (None = auto-detect, 1 = sequential)
-
-    Returns:
-        Dict with per-agent wins and win rates for the series
-
-    """
-    if len(agents) != 4:
-        raise ValueError("play_four_player_series requires exactly 4 agents")
-
-    # Use sequential version if n_processes=1 or num_games is small
-    if n_processes == 1 or num_games < 10:
-        return _play_four_player_series_sequential(agents, num_games)
-
-    # Determine number of processes
-    if n_processes is None:
-        n_processes = min(mp.cpu_count(), num_games)
-
-    # Serialize agents for multiprocessing
-    agent_configs = [_serialize_agent(agent) for agent in agents]
-
-    # Split games across processes
-    games_per_process = num_games // n_processes
-    remaining_games = num_games % n_processes
-
-    # Create work batches
-    work_batches = []
-    for i in range(n_processes):
-        batch_games = games_per_process + (1 if i < remaining_games else 0)
-        if batch_games > 0:
-            # Use different random seeds for each process
-            random_seed = np.random.randint(0, 2**31 - 1)
-            work_batches.append((agent_configs, batch_games, random_seed))
-
-    # Run batches in parallel
-    with mp.Pool(processes=len(work_batches)) as pool:
-        results = pool.map(_run_game_batch, work_batches)
-
-    # Aggregate results
-    total_wins = {a.name: 0 for a in agents}
-    total_cards_left_sum = {a.name: 0 for a in agents}
-    all_cards_history = []
-
-    for wins, cards_left_sum, cards_history in results:
-        for name in total_wins:
-            total_wins[name] += wins[name]
-            total_cards_left_sum[name] += cards_left_sum[name]
-        all_cards_history.extend(cards_history)
-
-    # Update agent stats (approximate since we can't update across processes)
-    for i, agent in enumerate(agents):
-        agent.wins += total_wins[agent.name]
-        agent.games_played += num_games
-
-    return {
-        "players": [a.name for a in agents],
-        "wins": total_wins,
-        "win_rates": {name: wins / num_games for name, wins in total_wins.items()},
-        "avg_cards_left": {name: total_cards_left_sum[name] / num_games for name in total_cards_left_sum},
-        "cards_left_by_game": all_cards_history,
-        "games_played": num_games,
-    }
-
-
-def _play_four_player_series_sequential(
-    agents: list[BaseAgent],
-    num_games: int,
-) -> dict:
-    """Sequential version of play_four_player_series for comparison and small runs."""
-    env_obs_config = strategic_observation()
-
-    # Check if any agent is a HumanAgent to enable move history tracking
-    # Import already available at top of file
-
-    track_history = any(isinstance(agent, HumanAgent) for agent in agents)
-
-    env = BigTwoRLWrapper(
-        observation_config=env_obs_config,
-        reward_function=None,  # Use default rewards
-        games_per_episode=1,
-        track_move_history=track_history,
-    )
-
-    # Local aggregates per agent
-    local_wins = {a.name: 0 for a in agents}
-    local_cards_left_sum = {a.name: 0 for a in agents}
-    cards_left_history: list[list[int]] = []
-
-    for _ in range(num_games):
-        winner_idx, _, cards_remaining = play_single_game(agents, env)
-        if winner_idx != -1:
-            local_wins[agents[winner_idx].name] += 1
-        # Note: winner_idx should never be -1 in Big Two, but keeping check for safety
-
-        # Accumulate cards remaining per player
-        for i, a in enumerate(agents):
-            local_cards_left_sum[a.name] += cards_remaining[i]
-        cards_left_history.append(cards_remaining)
-
-    return {
-        "players": [a.name for a in agents],
-        "wins": local_wins,
-        "win_rates": {name: wins / num_games for name, wins in local_wins.items()},
-        "avg_cards_left": {name: local_cards_left_sum[name] / num_games for name in local_cards_left_sum},
-        "cards_left_by_game": cards_left_history,
-        "games_played": num_games,
-    }
-
-
-def run_tournament(
-    agents: list[BaseAgent],
-    num_games: int = 100,
-    n_processes: int | None = None,
-) -> dict:
-    """Run a round-robin tournament over all 4-player combinations of the agents."""
-    if len(agents) != 4:
-        raise ValueError("Tournament requires exactly 4 agents")
-
-    matchup_results = []
-
-    # Reset all agent stats
-    for agent in agents:
-        agent.reset_stats()
-
-    parallel_info = ""
-    if n_processes != 1 and num_games >= 10:
-        processes = n_processes or min(mp.cpu_count(), num_games)
-        parallel_info = f" ({processes} processes)"
-
-    print(
-        f"Running 4-player tournament with {len(agents)} agents, {num_games} games{parallel_info}...",
-    )
-
-    result = play_four_player_series(agents, num_games, n_processes)
-    matchup_results.append(result)
-
-    # Calculate overall stats
-    agent_stats: dict[str, dict] = {}
-    for agent in agents:
-        agent_stats[agent.name] = {
-            "total_wins": agent.wins,
-            "total_games": agent.games_played,
-            "win_rate": agent.get_win_rate(),
-        }
-
-    return {
-        "agent_stats": agent_stats,
-        "matchup_results": matchup_results,
-        "tournament_summary": _create_tournament_summary(agents, matchup_results),
-    }
-
-
-def _create_tournament_summary(
-    agents: list[BaseAgent],
-    matchup_results: list[dict],
-) -> str:
-    """Create a readable tournament summary for 4-player tables."""
-    summary = []
-    summary.append("Tournament Results:")
-    summary.append("=" * 50)
-
-    # Sort agents by win rate
-    # Use agent index to disambiguate duplicate names in the summary output
-    indexed_agents = list(enumerate(agents))  # list of (index, agent)
-    sorted_indexed_agents = sorted(
-        indexed_agents,
-        key=lambda ia: ia[1].get_win_rate(),
-        reverse=True,
-    )
-
-    for rank, (orig_index, agent) in enumerate(sorted_indexed_agents, start=1):
-        display_name = f"{agent.name}#{orig_index + 1}"
-        summary.append(
-            f"{rank}. {display_name}: {agent.wins}/{agent.games_played} wins ({agent.get_win_rate():.2%})",
+    
+    def __init__(
+        self, 
+        agents: List[BaseAgent], 
+        n_processes: Optional[int] = None,
+        verbose: bool = True
+    ):
+        """Initialize Fixed Action Tournament.
+        
+        Args:
+            agents: List of agents to compete (must support fixed actions)
+            n_processes: Number of processes for parallel execution
+            verbose: Whether to print progress information
+        """
+        # Initialize base tournament first
+        # Tournament base class - no inheritance
+        self.verbose = verbose
+        self.agents = agents  # Store agents for access
+        
+        # Validate all agents are compatible with fixed action space
+        self._validate_agents(agents)
+        
+        if self.verbose:
+            print(f"🏆 Tournament initialized with {len(agents)} agents")
+            print(f"⚡ Parallel execution: {n_processes if n_processes else 'auto-detect'} processes")
+    
+    def _validate_agents(self, agents: List[BaseAgent]) -> None:
+        """Validate that all agents work with fixed action space.
+        
+        Args:
+            agents: List of agents to validate
+        """
+        for agent in agents:
+            # Check if agent has appropriate get_action signature
+            if not hasattr(agent, 'get_action'):
+                raise ValueError(f"Agent {agent.name} must have get_action method")
+            
+            # For PPO agents, check model compatibility
+            if isinstance(agent, PPOAgent):
+                if hasattr(agent, 'model') and agent.model is not None:
+                    if agent.model.action_space.n != 1365:
+                        raise ValueError(
+                            f"PPO agent {agent.name} has wrong action space size: "
+                            f"{agent.model.action_space.n} (expected 1365)"
+                        )
+            
+            if self.verbose:
+                print(f"✅ Validated agent: {agent.name}")
+    
+    def _create_game_environment(self) -> BigTwoWrapper:
+        """Create game environment for tournament."""
+        return BigTwoWrapper(
+            observation_config=standard_observation(),
+            games_per_episode=1,  # Single game per environment step
+            reward_function=None,  # Tournament doesn't need training rewards
+            track_move_history=False,
         )
-
-    # Add card statistics from the matchup results
-    if matchup_results:
-        result = matchup_results[0]  # Single 4-player table result
-        summary.append("\nCard Statistics:")
-        summary.append("-" * 30)
-
-        # Calculate total cards left for each player across all games
-        total_cards_by_player = {}
-        for name in result["players"]:
-            total_cards_by_player[name] = result["avg_cards_left"][name] * result["games_played"]
-
-        # Sort by average cards left (ascending - fewer cards left is better)
-        sorted_by_avg_cards = sorted(
-            result["avg_cards_left"].items(),
-            key=lambda x: x[1],
-        )
-
-        for name, avg_cards in sorted_by_avg_cards:
-            total_cards = int(total_cards_by_player[name])
-            summary.append(
-                f"{name}: {total_cards} total cards left, {avg_cards:.1f} avg cards left",
-            )
-
-    summary.append("\nTable Results:")
-    summary.append("-" * 30)
-    for result in matchup_results:
-        players = ", ".join(result["players"])  # type: ignore[index]
-        wins_str = ", ".join(f"{name}: {result['wins'][name]}" for name in result["players"])  # type: ignore[index]
-        summary.append(f"{players} | {wins_str}")
-
-    return "\n".join(summary)
-
-
-def load_agents_from_config(agent_configs: list[dict]) -> list[BaseAgent]:
-    """Load agents from configuration list."""
-    agents = []
-
-    for config in agent_configs:
-        agent_type = config["type"]
-        name = config.get("name", agent_type)
-
-        if agent_type == "random":
-            agents.append(RandomAgent(name))
-        elif agent_type == "greedy":
-            agents.append(GreedyAgent(name))
-        elif agent_type == "ppo":
-            model_path = config["model_path"]
-            agents.append(PPOAgent(model_path=model_path, name=name))
-        else:
-            raise ValueError(f"Unknown agent type: {agent_type}")
-
-    return agents
-
-
-if __name__ == "__main__":
-    # Import already available at top of file
-
-    # Example tournament
-    if len(sys.argv) > 1 and sys.argv[1] == "example":
-        # Create some example agents
-        agents = [
-            RandomAgent("Random"),
-            GreedyAgent("Greedy"),
-        ]
-
-        # Add PPO agent if model exists
+    
+    def play_game(self, agents: List[BaseAgent], game_id: Optional[int] = None) -> Dict[str, Any]:
+        """Play a single 4-player game with fixed actions.
+        
+        Args:
+            agents: List of exactly 4 agents
+            game_id: Optional game ID for tracking
+            
+        Returns:
+            Dictionary with game results
+        """
+        if len(agents) != 4:
+            raise ValueError(f"Need exactly 4 agents, got {len(agents)}")
+        
         try:
-            agents.append(PPOAgent(model_path="./models/best_model", name="PPO-Best"))
-        except FileNotFoundError:
-            # No trained PPO model found, skipping PPO agent
-            pass
-        except Exception:
-            # Failed to load PPO agent
-            pass
+            env = self._create_game_environment()
+            obs, info = env.reset()
+            
+            done = False
+            step_count = 0
+            max_steps = 1000  # Safety limit
+            game_history = []
+            
+            while not done and step_count < max_steps:
+                current_player = env.game.current_player
+                agent = agents[current_player]
+                
+                # Get action mask for legal moves
+                action_mask = env.get_action_mask()
+                
+                # Get agent action
+                try:
+                    action = agent.get_action(obs, action_mask=action_mask)
+                    
+                    # Validate action is legal
+                    if not action_mask[action]:
+                        if self.verbose:
+                            print(f"⚠️  Agent {agent.name} selected illegal action {action}")
+                        # Force a legal action
+                        legal_actions = np.where(action_mask)[0]
+                        if len(legal_actions) > 0:
+                            action = legal_actions[0]
+                        else:
+                            raise ValueError("No legal actions available")
+                    
+                    # Record move for history
+                    game_history.append({
+                        'step': step_count,
+                        'player': current_player,
+                        'agent': agent.name,
+                        'action': action,
+                        'legal_actions_count': np.sum(action_mask)
+                    })
+                    
+                except Exception as e:
+                    if self.verbose:
+                        print(f"❌ Agent {agent.name} error: {e}")
+                    # Force a legal action as fallback
+                    legal_actions = np.where(action_mask)[0]
+                    action = legal_actions[0] if len(legal_actions) > 0 else 0
+                
+                # Execute action
+                obs, reward, done, truncated, info = env.step(action)
+                step_count += 1
+            
+            # Get final results
+            winner = None
+            final_scores = [0] * 4
+            
+            if done and hasattr(env.game, 'hands'):
+                # Calculate final scores (cards remaining)
+                final_scores = [int(np.sum(env.game.hands[i])) for i in range(4)]
+                
+                # Find winner (player with 0 cards or lowest score)
+                min_score = min(final_scores)
+                if min_score == 0:
+                    winner = final_scores.index(0)
+                else:
+                    winner = final_scores.index(min_score)
+            
+            return {
+                'game_id': game_id,
+                'winner': winner,
+                'final_scores': final_scores,
+                'steps': step_count,
+                'completed': done,
+                'truncated': truncated,
+                'max_steps_reached': step_count >= max_steps,
+                'game_history': game_history if self.verbose else [],
+                'agents': [agent.name for agent in agents]
+            }
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ Game failed: {e}")
+                traceback.print_exc()
+            
+            return {
+                'game_id': game_id,
+                'winner': None,
+                'final_scores': [13, 13, 13, 13],  # All players keep all cards
+                'steps': 0,
+                'completed': False,
+                'error': str(e),
+                'agents': [agent.name for agent in agents]
+            }
+    
+    def run(self, num_games: int, **kwargs) -> Dict[str, Any]:
+        """Run tournament with fixed action space.
+        
+        Args:
+            num_games: Number of games to play
+            **kwargs: Additional arguments
+            
+        Returns:
+            Tournament results
+        """
+        if self.verbose:
+            print(f"🎮 Starting tournament with {num_games} games")
+        
+        start_time = time.time()
+        
+        # Run tournament games
+        results = []
+        for game_id in range(num_games):
+            if self.verbose and (game_id + 1) % 20 == 0:
+                print(f"📈 Progress: {game_id + 1}/{num_games} games")
+            
+            game_result = self.play_game(self.agents, game_id)
+            results.append(game_result)
+        
+        # Aggregate results
+        wins = [0] * len(self.agents)
+        total_scores = [0] * len(self.agents)
+        completed_games = 0
+        
+        for result in results:
+            if result['completed'] and result['winner'] is not None:
+                wins[result['winner']] += 1
+                completed_games += 1
+            
+            for i, score in enumerate(result['final_scores']):
+                total_scores[i] += score
+        
+        # Calculate statistics
+        win_rates = [w / completed_games if completed_games > 0 else 0 for w in wins]
+        avg_scores = [s / len(results) if results else 0 for s in total_scores]
+        
+        results = {
+            'agents': [agent.name for agent in self.agents],
+            'total_games': num_games,
+            'completed_games': completed_games,
+            'wins': wins,
+            'win_rates': win_rates,
+            'avg_scores': avg_scores,
+            'game_results': results
+        }
+        
+        end_time = time.time()
+        duration = end_time - start_time
+        
+        if self.verbose:
+            print(f"🏁 Tournament completed in {duration:.2f}s")
+            print(f"📊 Games per second: {num_games / duration:.2f}")
+        
+        # Add fixed action space metadata
+        results['tournament_type'] = 'Tournament'
+        results['action_space_size'] = 1365
+        results['uses_action_masking'] = True
+        results['duration_seconds'] = duration
+        
+        return results
 
-        # Run tournament
-        results = run_tournament(agents, num_games=50)
-        # Tournament results available in results dict
-    else:
-        # Usage: python tournament.py example
-        # Or import and use the functions directly
-        pass
+
+class SeriesEvaluator:
+    """Evaluator for running series of games between specific agents."""
+    
+    def __init__(self, verbose: bool = True):
+        """Initialize series evaluator.
+        
+        Args:
+            verbose: Whether to print progress information
+        """
+        self.verbose = verbose
+    
+    def play_four_player_series(
+        self,
+        agents: List[BaseAgent],
+        num_games: int = 100,
+        n_processes: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Play series of 4-player games with fixed action space.
+        
+        Args:
+            agents: List of exactly 4 agents
+            num_games: Number of games to play
+            n_processes: Number of parallel processes
+            
+        Returns:
+            Series results with detailed statistics
+        """
+        if len(agents) != 4:
+            raise ValueError(f"Need exactly 4 agents, got {len(agents)}")
+        
+        if self.verbose:
+            agent_names = [agent.name for agent in agents]
+            print(f"🎯 Starting 4-player series: {' vs '.join(agent_names)}")
+            print(f"🎮 Games: {num_games}, Processes: {n_processes or 'auto'}")
+        
+        tournament = Tournament(agents, n_processes=n_processes, verbose=False)
+        
+        start_time = time.time()
+        results = []
+        
+        if n_processes and n_processes > 1:
+            # Parallel execution
+            results = self._run_parallel_series(tournament, agents, num_games, n_processes)
+        else:
+            # Sequential execution
+            for game_id in range(num_games):
+                if self.verbose and (game_id + 1) % 20 == 0:
+                    print(f"📈 Progress: {game_id + 1}/{num_games} games")
+                
+                game_result = tournament.play_game(agents, game_id)
+                results.append(game_result)
+        
+        end_time = time.time()
+        duration = end_time - start_time
+        
+        # Aggregate results
+        return self._aggregate_series_results(results, agents, num_games, duration)
+    
+    def _run_parallel_series(
+        self,
+        tournament: Tournament,
+        agents: List[BaseAgent],
+        num_games: int,
+        n_processes: int
+    ) -> List[Dict[str, Any]]:
+        """Run series using parallel processing.
+        
+        Args:
+            tournament: Tournament instance
+            agents: List of agents
+            num_games: Number of games
+            n_processes: Number of processes
+            
+        Returns:
+            List of game results
+        """
+        # Create serializable agent data for multiprocessing
+        agent_data = []
+        for agent in agents:
+            if isinstance(agent, PPOAgent):
+                agent_data.append({
+                    'type': 'ppo',
+                    'name': agent.name,
+                    'model_path': agent.model_path,
+                    'deterministic': agent.deterministic
+                })
+            elif isinstance(agent, RandomAgent):
+                agent_data.append({
+                    'type': 'random',
+                    'name': agent.name,
+                    'seed': getattr(agent, 'seed', None)
+                })
+            elif isinstance(agent, GreedyAgent):
+                agent_data.append({
+                    'type': 'greedy',
+                    'name': agent.name,
+                    'strategy': agent.strategy
+                })
+            else:
+                raise ValueError(f"Unsupported agent type for parallel execution: {type(agent)}")
+        
+        # Run games in parallel
+        batch_size = max(1, num_games // n_processes)
+        results = []
+        
+        with ProcessPoolExecutor(max_workers=n_processes) as executor:
+            futures = []
+            
+            for i in range(0, num_games, batch_size):
+                batch_games = min(batch_size, num_games - i)
+                future = executor.submit(
+                    _play_game_batch,
+                    agent_data,
+                    batch_games,
+                    i  # start_game_id
+                )
+                futures.append(future)
+            
+            for future in as_completed(futures):
+                try:
+                    batch_results = future.result()
+                    results.extend(batch_results)
+                    
+                    if self.verbose:
+                        print(f"📈 Completed batch: {len(results)}/{num_games} games")
+                        
+                except Exception as e:
+                    print(f"❌ Batch failed: {e}")
+        
+        return results
+    
+    def _aggregate_series_results(
+        self,
+        results: List[Dict[str, Any]],
+        agents: List[BaseAgent],
+        num_games: int,
+        duration: float
+    ) -> Dict[str, Any]:
+        """Aggregate series results into summary statistics.
+        
+        Args:
+            results: List of game results
+            agents: List of agents
+            num_games: Total games played
+            duration: Total duration
+            
+        Returns:
+            Aggregated results
+        """
+        # Initialize counters
+        wins = [0] * 4
+        total_scores = [0] * 4
+        completed_games = 0
+        
+        for result in results:
+            if result['completed'] and result['winner'] is not None:
+                wins[result['winner']] += 1
+                completed_games += 1
+            
+            for i, score in enumerate(result['final_scores']):
+                total_scores[i] += score
+        
+        # Calculate statistics
+        win_rates = [w / completed_games if completed_games > 0 else 0 for w in wins]
+        avg_scores = [s / len(results) if results else 0 for s in total_scores]
+        
+        aggregated_results = {
+            'agents': [agent.name for agent in agents],
+            'total_games': num_games,
+            'completed_games': completed_games,
+            'wins': wins,
+            'win_rates': win_rates,
+            'avg_scores': avg_scores,
+            'duration_seconds': duration,
+            'games_per_second': num_games / duration if duration > 0 else 0,
+            'game_results': results,
+            'series_type': 'four_player_fixed_action'
+        }
+        
+        if self.verbose:
+            print(f"\n🏆 Series Results:")
+            for i, agent in enumerate(agents):
+                print(f"  {agent.name}: {wins[i]} wins ({win_rates[i]:.1%}), avg cards: {avg_scores[i]:.1f}")
+        
+        return aggregated_results
+
+
+def _play_game_batch(agent_data: List[Dict], num_games: int, start_game_id: int) -> List[Dict[str, Any]]:
+    """Play a batch of games (for multiprocessing).
+    
+    Args:
+        agent_data: Serializable agent data
+        num_games: Number of games in batch
+        start_game_id: Starting game ID
+        
+    Returns:
+        List of game results
+    """
+    try:
+        # Recreate agents from data
+        agents = []
+        for data in agent_data:
+            if data['type'] == 'ppo':
+                agent = PPOAgent(
+                    model_path=data['model_path'],
+                    name=data['name'],
+                    deterministic=data['deterministic']
+                )
+            elif data['type'] == 'random':
+                agent = RandomAgent(
+                    name=data['name'],
+                    seed=data['seed']
+                )
+            elif data['type'] == 'greedy':
+                agent = GreedyAgent(
+                    name=data['name'],
+                    strategy=data['strategy']
+                )
+            else:
+                raise ValueError(f"Unknown agent type: {data['type']}")
+            agents.append(agent)
+        
+        # Create tournament and play games
+        tournament = Tournament(agents, verbose=False)
+        results = []
+        
+        for i in range(num_games):
+            game_id = start_game_id + i
+            result = tournament.play_game(agents, game_id)
+            results.append(result)
+        
+        return results
+        
+    except Exception as e:
+        # Return error results for failed batch
+        error_results = []
+        for i in range(num_games):
+            error_results.append({
+                'game_id': start_game_id + i,
+                'winner': None,
+                'final_scores': [13, 13, 13, 13],
+                'steps': 0,
+                'completed': False,
+                'error': f"Batch processing error: {e}",
+                'agents': [data['name'] for data in agent_data]
+            })
+        return error_results
+
+
+# Convenience function for backward compatibility
+def play_four_player_series_fixed(
+    agents: List[BaseAgent],
+    num_games: int = 100,
+    n_processes: Optional[int] = None
+) -> Dict[str, Any]:
+    """Play series of games with fixed action space (convenience function).
+    
+    Args:
+        agents: List of exactly 4 agents
+        num_games: Number of games to play
+        n_processes: Number of processes for parallel execution
+        
+    Returns:
+        Series results
+    """
+    evaluator = SeriesEvaluator(verbose=True)
+    return evaluator.play_four_player_series(agents, num_games, n_processes)
