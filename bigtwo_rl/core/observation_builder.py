@@ -4,9 +4,10 @@ This module allows users to customize exactly what information their models see,
 enabling experiments with different levels of game state visibility.
 """
 
-import numpy as np
-from typing import Dict, Any, List
 from dataclasses import dataclass, field
+from typing import Any
+
+import numpy as np
 from gymnasium import spaces
 
 
@@ -22,30 +23,26 @@ class ObservationConfig:
     # Enhanced memory features
     include_played_cards: bool = False  # All cards played so far (52 features)
     include_remaining_deck: bool = False  # What cards are still unplayed (52 features)
-    include_cards_by_player: bool = (
-        False  # Which player played which cards (52*4=208 features)
-    )
+    include_cards_by_player: bool = False  # Which player played which cards (52*4=208 features)
 
     # Game context features
     include_last_play_exists: bool = True  # Whether there's a last play (1 feature)
     include_game_phase: bool = False  # Early/mid/late game indicator (3 features)
     include_turn_position: bool = False  # Position relative to dealer (4 features)
-    include_trick_history: bool = (
-        False  # Who won last N tricks (12 features, last 3 tricks * 4 players)
-    )
+    include_trick_history: bool = False  # Who won last N tricks (12 features, last 3 tricks * 4 players)
 
     # Opponent modeling features
     include_pass_history: bool = False  # Who passed on current trick (4 features)
     include_play_patterns: bool = False  # Opponent playing style indicators (16 features, 4 players * 4 style metrics)
 
     # Advanced strategic features
-    include_power_cards_remaining: bool = (
-        False  # Status of A♠, 2♠, 2♥, 2♦, 2♣ (5 features)
+    include_power_cards_remaining: bool = False  # Status of A♠, 2♠, 2♥, 2♦, 2♣ (5 features)
+    include_hand_type_capabilities: bool = (
+        False  # What hand types each player can still make (20 features, 4 players * 5 types)
     )
-    include_hand_type_capabilities: bool = False  # What hand types each player can still make (20 features, 4 players * 5 types)
 
     # Internal tracking (computed automatically)
-    _feature_sizes: Dict[str, int] = field(default_factory=dict, init=False)
+    _feature_sizes: dict[str, int] = field(default_factory=dict, init=False)
     _total_size: int = field(default=0, init=False)
 
     def __post_init__(self):
@@ -71,7 +68,7 @@ class ObservationConfig:
         # Validation
         if not (self.include_hand and self.include_hand_sizes):
             raise ValueError(
-                "include_hand and include_hand_sizes are required for basic gameplay"
+                "include_hand and include_hand_sizes are required for basic gameplay",
             )
 
 
@@ -138,17 +135,6 @@ class ObservationBuilder:
         self.config.include_hand_type_capabilities = enabled
         return self
 
-    # Convenience presets
-    def minimal(self) -> "ObservationBuilder":
-        """Minimal observation: only own hand and opponent hand sizes."""
-        self.config = ObservationConfig(
-            include_hand=True,
-            include_hand_sizes=True,
-            include_last_play=False,
-            include_last_play_exists=False,
-        )
-        return self
-
     def standard(self) -> "ObservationBuilder":
         """Standard observation: current state only (backward compatible)."""
         self.config = ObservationConfig(
@@ -161,9 +147,7 @@ class ObservationBuilder:
 
     def memory_enhanced(self) -> "ObservationBuilder":
         """Enhanced with card memory and game context."""
-        return (
-            self.standard().with_card_memory().with_remaining_deck().with_game_context()
-        )
+        return self.standard().with_card_memory().with_remaining_deck().with_game_context()
 
     def strategic(self) -> "ObservationBuilder":
         """Full strategic information including opponent modeling."""
@@ -189,7 +173,10 @@ class ObservationVectorizer:
     def __init__(self, config: ObservationConfig):
         self.config = config
         self.gymnasium_space = spaces.Box(
-            low=-1, high=1, shape=(config._total_size,), dtype=np.float32
+            low=-1,
+            high=1,
+            shape=(config._total_size,),
+            dtype=np.float32,
         )
 
         # Initialize tracking state for advanced features
@@ -198,7 +185,8 @@ class ObservationVectorizer:
         self._trick_winners = []  # Last few trick winners
         self._pass_counts = np.zeros(4, dtype=int)  # Pass counts per player
         self._play_style_metrics = np.zeros(
-            (4, 4), dtype=float
+            (4, 4),
+            dtype=float,
         )  # Style indicators per player
 
     def reset(self):
@@ -209,7 +197,7 @@ class ObservationVectorizer:
         self._pass_counts.fill(0)
         self._play_style_metrics.fill(0)
 
-    def vectorize(self, raw_obs: Dict[str, Any], game_env) -> np.ndarray:
+    def vectorize(self, raw_obs: dict[str, Any], game_env) -> np.ndarray:
         """Convert raw observation dict to configured feature vector."""
         features = []
 
@@ -229,14 +217,16 @@ class ObservationVectorizer:
         # Ensure correct size
         if len(result) != self.config._total_size:
             raise ValueError(
-                f"Feature vector size mismatch: got {len(result)}, expected {self.config._total_size}"
+                f"Feature vector size mismatch: got {len(result)}, expected {self.config._total_size}",
             )
 
         return result
 
     def _build_core_features(
-        self, raw_obs: Dict[str, Any], game_env
-    ) -> List[np.ndarray]:
+        self,
+        raw_obs: dict[str, Any],
+        game_env,
+    ) -> list[np.ndarray]:
         """Build core game state features (hand, last_play, hand_sizes)."""
         features = []
 
@@ -249,13 +239,15 @@ class ObservationVectorizer:
         if self.config.include_hand_sizes:
             hand_sizes = np.zeros(4, dtype=np.float32)
             hand_sizes[: game_env.num_players] = np.sum(
-                game_env.hands, axis=1, dtype=np.float32
+                game_env.hands,
+                axis=1,
+                dtype=np.float32,
             )
             features.append(hand_sizes)
 
         return features
 
-    def _build_memory_features(self, game_env) -> List[np.ndarray]:
+    def _build_memory_features(self, game_env) -> list[np.ndarray]:
         """Build memory-based features (played_cards, remaining_deck, cards_by_player)."""
         features = []
 
@@ -272,8 +264,10 @@ class ObservationVectorizer:
         return features
 
     def _build_context_features(
-        self, raw_obs: Dict[str, Any], game_env
-    ) -> List[np.ndarray]:
+        self,
+        raw_obs: dict[str, Any],
+        game_env,
+    ) -> list[np.ndarray]:
         """Build context features (last_play_exists, game_phase, turn_position, trick_history)."""
         features = []
 
@@ -295,7 +289,7 @@ class ObservationVectorizer:
 
         return features
 
-    def _build_opponent_modeling_features(self) -> List[np.ndarray]:
+    def _build_opponent_modeling_features(self) -> list[np.ndarray]:
         """Build opponent modeling features (pass_history, play_patterns)."""
         features = []
 
@@ -307,7 +301,7 @@ class ObservationVectorizer:
 
         return features
 
-    def _build_strategic_features(self) -> List[np.ndarray]:
+    def _build_strategic_features(self) -> list[np.ndarray]:
         """Build strategic features (power_cards_remaining, hand_type_capabilities)."""
         features = []
 
@@ -330,15 +324,15 @@ class ObservationVectorizer:
         remaining &= ~self._played_cards
         return remaining
 
-    def _calculate_game_phase(self, game_env) -> List[int]:
+    def _calculate_game_phase(self, game_env) -> list[int]:
         """Calculate current game phase (early/mid/late)."""
         total_cards = np.sum(game_env.hands)
         if total_cards > 40:  # Early game
             return [1, 0, 0]
-        elif total_cards > 20:  # Mid game
+        if total_cards > 20:  # Mid game
             return [0, 1, 0]
-        else:  # Late game
-            return [0, 0, 1]
+        # Late game
+        return [0, 0, 1]
 
     def _calculate_trick_history(self) -> np.ndarray:
         """Calculate last 3 trick winners as one-hot encoded features."""
@@ -381,22 +375,6 @@ class ObservationVectorizer:
         # Update pass tracking
         if is_pass:
             self._pass_counts[player] += 1
-
-
-# Convenience functions for common configurations
-def minimal_observation() -> ObservationConfig:
-    """Minimal observation configuration."""
-    return ObservationBuilder().minimal().build()
-
-
-def standard_observation() -> ObservationConfig:
-    """Standard observation configuration (backward compatible)."""
-    return ObservationBuilder().standard().build()
-
-
-def memory_enhanced_observation() -> ObservationConfig:
-    """Memory-enhanced observation configuration."""
-    return ObservationBuilder().memory_enhanced().build()
 
 
 def strategic_observation() -> ObservationConfig:

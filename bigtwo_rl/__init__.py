@@ -12,16 +12,13 @@ Main components:
 __version__ = "0.1.0"
 
 # Main API exports
+from .agents import BaseAgent, GreedyAgent, PPOAgent, RandomAgent
 from .core import BigTwoRLWrapper, ToyBigTwoFullRules
 from .core.observation_builder import (
     ObservationBuilder,
     ObservationConfig,
-    minimal_observation,
-    standard_observation,
-    memory_enhanced_observation,
     strategic_observation,
 )
-from .agents import BaseAgent, RandomAgent, GreedyAgent, PPOAgent
 
 # Training API exports - import these explicitly for training
 # from bigtwo_rl.training import Trainer
@@ -29,16 +26,13 @@ from .agents import BaseAgent, RandomAgent, GreedyAgent, PPOAgent
 # from bigtwo_rl.training.hyperparams import DefaultConfig, AggressiveConfig, etc.
 
 __all__ = [
+    "BaseAgent",
     "BigTwoRLWrapper",
-    "ToyBigTwoFullRules",
+    "GreedyAgent",
     "ObservationBuilder",
     "ObservationConfig",
-    "minimal_observation",
-    "standard_observation",
-    "memory_enhanced_observation",
-    "strategic_observation",
-    "BaseAgent",
-    "RandomAgent",
-    "GreedyAgent",
     "PPOAgent",
+    "RandomAgent",
+    "ToyBigTwoFullRules",
+    "strategic_observation",
 ]

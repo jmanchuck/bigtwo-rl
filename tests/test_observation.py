@@ -1,9 +1,10 @@
 """Test the new observation space with full previous hand information."""
 
 import numpy as np
+
 from bigtwo_rl.core.bigtwo import ToyBigTwoFullRules
+from bigtwo_rl.core.observation_builder import strategic_observation
 from bigtwo_rl.core.rl_wrapper import BigTwoRLWrapper
-from bigtwo_rl.core.observation_builder import standard_observation
 
 
 def test_observation_space():
@@ -16,9 +17,7 @@ def test_observation_space():
 
     # Check observation keys
     expected_keys = {"hand", "last_play", "last_play_exists", "legal_moves"}
-    assert set(obs.keys()) == expected_keys, (
-        f"Missing keys: {expected_keys - set(obs.keys())}"
-    )
+    assert set(obs.keys()) == expected_keys, f"Missing keys: {expected_keys - set(obs.keys())}"
 
     # Check dimensions
     assert obs["hand"].shape == (52,), f"Hand shape: {obs['hand'].shape}"
@@ -52,7 +51,9 @@ def test_rl_wrapper():
     print("\nTesting RL wrapper...")
 
     wrapper = BigTwoRLWrapper(
-        observation_config=standard_observation(), num_players=4, games_per_episode=1
+        observation_config=strategic_observation(),
+        num_players=4,
+        games_per_episode=1,
     )
     obs, info = wrapper.reset()
 
@@ -84,9 +85,3 @@ def test_rl_wrapper():
     print(f"✓ After move - last play exists: {last_play_exists_part[0]}")
 
     print("RL wrapper test passed!")
-
-
-if __name__ == "__main__":
-    test_observation_space()
-    test_rl_wrapper()
-    print("\n✓ All observation tests passed!")

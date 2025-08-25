@@ -1,46 +1,48 @@
 """Tournament system for Big Two agents."""
 
-import numpy as np
 import multiprocessing as mp
 import sys
-from typing import List, Dict, Tuple, Optional
-from ..core.rl_wrapper import BigTwoRLWrapper
-from ..core.observation_builder import ObservationConfig, standard_observation
-from ..agents import BaseAgent, RandomAgent, GreedyAgent, PPOAgent
+
+import numpy as np
+
+from ..agents import BaseAgent, GreedyAgent, PPOAgent, RandomAgent
 from ..agents.human_agent import HumanAgent
+from ..core.observation_builder import strategic_observation
+from ..core.rl_wrapper import BigTwoRLWrapper
 
 
 class Tournament:
     """High-level tournament system for Big Two agents."""
 
-    def __init__(self, agents: List[BaseAgent], n_processes: Optional[int] = None):
-        """
-        Initialize tournament with list of agents.
+    def __init__(self, agents: list[BaseAgent], n_processes: int | None = None):
+        """Initialize tournament with list of agents.
 
         Args:
             agents: List of BaseAgent instances to compete
             n_processes: Number of processes for parallel execution (None = auto)
+
         """
         self.agents = agents
         self.n_processes = n_processes
 
-    def run(self, num_games: int = 100) -> Dict:
-        """
-        Run round-robin tournament where each agent plays against every other agent.
+    def run(self, num_games: int = 100) -> dict:
+        """Run round-robin tournament where each agent plays against every other agent.
 
         Args:
             num_games: Number of games per matchup
 
         Returns:
             Dict with tournament results and statistics
+
         """
         return run_tournament(self.agents, num_games, self.n_processes)
 
     def run_parallel(
-        self, num_games: int = 100, n_processes: Optional[int] = None
-    ) -> Dict:
-        """
-        Run tournament with explicit parallel processing control.
+        self,
+        num_games: int = 100,
+        n_processes: int | None = None,
+    ) -> dict:
+        """Run tournament with explicit parallel processing control.
 
         Args:
             num_games: Number of games per matchup
@@ -48,6 +50,7 @@ class Tournament:
 
         Returns:
             Dict with tournament results and statistics
+
         """
         processes = n_processes or self.n_processes
         return run_tournament(self.agents, num_games, processes)
@@ -60,14 +63,15 @@ class Tournament:
         """Remove an agent by name."""
         self.agents = [a for a in self.agents if a.name != agent_name]
 
-    def list_agents(self) -> List[str]:
+    def list_agents(self) -> list[str]:
         """Get list of agent names."""
         return [agent.name for agent in self.agents]
 
 
 def play_single_game(
-    agents: List[BaseAgent], env: BigTwoRLWrapper
-) -> Tuple[int, float, List[int]]:
+    agents: list[BaseAgent],
+    env: BigTwoRLWrapper,
+) -> tuple[int, float, list[int]]:
     """Play a single game between multiple agents.
 
     Returns:
@@ -75,6 +79,7 @@ def play_single_game(
             winner_idx: index of winner in agents list, or -1 if none
             reward: terminal reward returned by env for current player
             cards_remaining: list of number of cards remaining per player at game end
+
     """
     obs, _ = env.reset()
     done = False
@@ -114,9 +119,7 @@ def play_single_game(
                     agent.record_game_result(i == winner_idx)
 
             # Capture cards remaining for each player
-            cards_remaining = [
-                np.sum(env.env.hands[p]) for p in range(env.env.num_players)
-            ]
+            cards_remaining = [np.sum(env.env.hands[p]) for p in range(env.env.num_players)]
             return winner_idx, reward, cards_remaining
 
     # No winner (should not happen); capture current hand sizes
@@ -124,99 +127,46 @@ def play_single_game(
     return -1, 0, cards_remaining
 
 
-def _serialize_agent(agent: BaseAgent) -> Dict:
+def _serialize_agent(agent: BaseAgent) -> dict:
     """Serialize agent for multiprocessing."""
     if isinstance(agent, RandomAgent):
         return {"type": "random", "name": agent.name}
-    elif isinstance(agent, GreedyAgent):
+    if isinstance(agent, GreedyAgent):
         return {"type": "greedy", "name": agent.name}
-    elif isinstance(agent, PPOAgent):
+    if isinstance(agent, PPOAgent):
         if agent.model_path is None:
             raise ValueError(
-                f"Cannot serialize PPOAgent '{agent.name}' without model_path"
+                f"Cannot serialize PPOAgent '{agent.name}' without model_path",
             )
         return {"type": "ppo", "name": agent.name, "model_path": agent.model_path}
-    else:
-        raise ValueError(f"Cannot serialize agent type: {type(agent)}")
+    raise ValueError(f"Cannot serialize agent type: {type(agent)}")
 
 
-def _deserialize_agent(agent_config: Dict) -> BaseAgent:
+def _deserialize_agent(agent_config: dict) -> BaseAgent:
     """Deserialize agent from config."""
     agent_type = agent_config["type"]
     name = agent_config["name"]
 
     if agent_type == "random":
         return RandomAgent(name)
-    elif agent_type == "greedy":
+    if agent_type == "greedy":
         return GreedyAgent(name)
-    elif agent_type == "ppo":
+    if agent_type == "ppo":
         return PPOAgent(model_path=agent_config["model_path"], name=name)
-    else:
-        raise ValueError(f"Unknown agent type: {agent_type}")
-
-
-def _union_observation_config_for_agents(agents: List[BaseAgent]) -> ObservationConfig:
-    """Create an observation configuration that contains the union of features
-    required by the provided agents' models.
-
-    - If agents are PPO and have model metadata, use that to determine their
-      model feature needs. If not available, fall back to standard observation.
-    - The union config ensures the environment can generate all features any
-      agent might require. Agents that do not use certain features will ignore
-      them via their observation converter.
-    """
-    # Start with standard config to maintain backward compatibility
-
-    union = standard_observation()
-
-    def widen(to_union: ObservationConfig, other: ObservationConfig) -> None:
-        # Flip on any feature that the other config uses
-        for attr in [
-            "include_hand",
-            "include_last_play",
-            "include_hand_sizes",
-            "include_played_cards",
-            "include_remaining_deck",
-            "include_cards_by_player",
-            "include_last_play_exists",
-            "include_game_phase",
-            "include_turn_position",
-            "include_trick_history",
-            "include_pass_history",
-            "include_play_patterns",
-            "include_power_cards_remaining",
-            "include_hand_type_capabilities",
-        ]:
-            if getattr(other, attr):
-                setattr(to_union, attr, True)
-
-    for agent in agents:
-        # Prefer explicit exposure of model configuration if present
-        model_cfg = getattr(agent, "model_obs_config", None)
-        if isinstance(model_cfg, ObservationConfig):
-            widen(union, model_cfg)
-        else:
-            # As a fallback, if the agent was initialized with env_obs_config
-            env_cfg = getattr(agent, "env_obs_config", None)
-            if isinstance(env_cfg, ObservationConfig):
-                widen(union, env_cfg)
-
-    # Recompute sizes
-    union.__post_init__()
-    return union
+    raise ValueError(f"Unknown agent type: {agent_type}")
 
 
 def _run_game_batch(
-    args: Tuple[List[Dict], int, int],
-) -> Tuple[Dict[str, int], Dict[str, int], List[List[int]]]:
-    """
-    Worker function to run a batch of games in parallel.
+    args: tuple[list[dict], int, int],
+) -> tuple[dict[str, int], dict[str, int], list[list[int]]]:
+    """Worker function to run a batch of games in parallel.
 
     Args:
         args: Tuple of (agent_configs, num_games, random_seed)
 
     Returns:
         Tuple of (wins_dict, cards_left_sum_dict, cards_history)
+
     """
     agent_configs, num_games, random_seed = args
 
@@ -227,7 +177,7 @@ def _run_game_batch(
     agents = [_deserialize_agent(config) for config in agent_configs]
 
     # Create environment with observation space that supports all agents
-    env_obs_config = _union_observation_config_for_agents(agents)
+    env_obs_config = strategic_observation()
 
     # Check if any agent is a HumanAgent to enable move history tracking
     # Import already available at top of file
@@ -262,8 +212,10 @@ def _run_game_batch(
 
 
 def play_four_player_series(
-    agents: List[BaseAgent], num_games: int = 100, n_processes: Optional[int] = None
-) -> Dict:
+    agents: list[BaseAgent],
+    num_games: int = 100,
+    n_processes: int | None = None,
+) -> dict:
     """Play a series of 4-player matches between the provided four agents.
 
     Args:
@@ -273,6 +225,7 @@ def play_four_player_series(
 
     Returns:
         Dict with per-agent wins and win rates for the series
+
     """
     if len(agents) != 4:
         raise ValueError("play_four_player_series requires exactly 4 agents")
@@ -325,20 +278,18 @@ def play_four_player_series(
         "players": [a.name for a in agents],
         "wins": total_wins,
         "win_rates": {name: wins / num_games for name, wins in total_wins.items()},
-        "avg_cards_left": {
-            name: total_cards_left_sum[name] / num_games
-            for name in total_cards_left_sum
-        },
+        "avg_cards_left": {name: total_cards_left_sum[name] / num_games for name in total_cards_left_sum},
         "cards_left_by_game": all_cards_history,
         "games_played": num_games,
     }
 
 
 def _play_four_player_series_sequential(
-    agents: List[BaseAgent], num_games: int
-) -> Dict:
+    agents: list[BaseAgent],
+    num_games: int,
+) -> dict:
     """Sequential version of play_four_player_series for comparison and small runs."""
-    env_obs_config = _union_observation_config_for_agents(agents)
+    env_obs_config = strategic_observation()
 
     # Check if any agent is a HumanAgent to enable move history tracking
     # Import already available at top of file
@@ -355,7 +306,7 @@ def _play_four_player_series_sequential(
     # Local aggregates per agent
     local_wins = {a.name: 0 for a in agents}
     local_cards_left_sum = {a.name: 0 for a in agents}
-    cards_left_history: List[List[int]] = []
+    cards_left_history: list[list[int]] = []
 
     for _ in range(num_games):
         winner_idx, _, cards_remaining = play_single_game(agents, env)
@@ -372,18 +323,17 @@ def _play_four_player_series_sequential(
         "players": [a.name for a in agents],
         "wins": local_wins,
         "win_rates": {name: wins / num_games for name, wins in local_wins.items()},
-        "avg_cards_left": {
-            name: local_cards_left_sum[name] / num_games
-            for name in local_cards_left_sum
-        },
+        "avg_cards_left": {name: local_cards_left_sum[name] / num_games for name in local_cards_left_sum},
         "cards_left_by_game": cards_left_history,
         "games_played": num_games,
     }
 
 
 def run_tournament(
-    agents: List[BaseAgent], num_games: int = 100, n_processes: Optional[int] = None
-) -> Dict:
+    agents: list[BaseAgent],
+    num_games: int = 100,
+    n_processes: int | None = None,
+) -> dict:
     """Run a round-robin tournament over all 4-player combinations of the agents."""
     if len(agents) != 4:
         raise ValueError("Tournament requires exactly 4 agents")
@@ -400,14 +350,14 @@ def run_tournament(
         parallel_info = f" ({processes} processes)"
 
     print(
-        f"Running 4-player tournament with {len(agents)} agents, {num_games} games{parallel_info}..."
+        f"Running 4-player tournament with {len(agents)} agents, {num_games} games{parallel_info}...",
     )
 
     result = play_four_player_series(agents, num_games, n_processes)
     matchup_results.append(result)
 
     # Calculate overall stats
-    agent_stats: Dict[str, Dict] = {}
+    agent_stats: dict[str, dict] = {}
     for agent in agents:
         agent_stats[agent.name] = {
             "total_wins": agent.wins,
@@ -423,7 +373,8 @@ def run_tournament(
 
 
 def _create_tournament_summary(
-    agents: List[BaseAgent], matchup_results: List[Dict]
+    agents: list[BaseAgent],
+    matchup_results: list[dict],
 ) -> str:
     """Create a readable tournament summary for 4-player tables."""
     summary = []
@@ -434,13 +385,15 @@ def _create_tournament_summary(
     # Use agent index to disambiguate duplicate names in the summary output
     indexed_agents = list(enumerate(agents))  # list of (index, agent)
     sorted_indexed_agents = sorted(
-        indexed_agents, key=lambda ia: ia[1].get_win_rate(), reverse=True
+        indexed_agents,
+        key=lambda ia: ia[1].get_win_rate(),
+        reverse=True,
     )
 
     for rank, (orig_index, agent) in enumerate(sorted_indexed_agents, start=1):
         display_name = f"{agent.name}#{orig_index + 1}"
         summary.append(
-            f"{rank}. {display_name}: {agent.wins}/{agent.games_played} wins ({agent.get_win_rate():.2%})"
+            f"{rank}. {display_name}: {agent.wins}/{agent.games_played} wins ({agent.get_win_rate():.2%})",
         )
 
     # Add card statistics from the matchup results
@@ -452,34 +405,31 @@ def _create_tournament_summary(
         # Calculate total cards left for each player across all games
         total_cards_by_player = {}
         for name in result["players"]:
-            total_cards_by_player[name] = (
-                result["avg_cards_left"][name] * result["games_played"]
-            )
+            total_cards_by_player[name] = result["avg_cards_left"][name] * result["games_played"]
 
         # Sort by average cards left (ascending - fewer cards left is better)
         sorted_by_avg_cards = sorted(
-            result["avg_cards_left"].items(), key=lambda x: x[1]
+            result["avg_cards_left"].items(),
+            key=lambda x: x[1],
         )
 
         for name, avg_cards in sorted_by_avg_cards:
             total_cards = int(total_cards_by_player[name])
             summary.append(
-                f"{name}: {total_cards} total cards left, {avg_cards:.1f} avg cards left"
+                f"{name}: {total_cards} total cards left, {avg_cards:.1f} avg cards left",
             )
 
     summary.append("\nTable Results:")
     summary.append("-" * 30)
     for result in matchup_results:
         players = ", ".join(result["players"])  # type: ignore[index]
-        wins_str = ", ".join(
-            f"{name}: {result['wins'][name]}" for name in result["players"]
-        )  # type: ignore[index]
+        wins_str = ", ".join(f"{name}: {result['wins'][name]}" for name in result["players"])  # type: ignore[index]
         summary.append(f"{players} | {wins_str}")
 
     return "\n".join(summary)
 
 
-def load_agents_from_config(agent_configs: List[Dict]) -> List[BaseAgent]:
+def load_agents_from_config(agent_configs: list[dict]) -> list[BaseAgent]:
     """Load agents from configuration list."""
     agents = []
 
@@ -517,7 +467,7 @@ if __name__ == "__main__":
         except FileNotFoundError:
             # No trained PPO model found, skipping PPO agent
             pass
-        except Exception as e:
+        except Exception:
             # Failed to load PPO agent
             pass
 

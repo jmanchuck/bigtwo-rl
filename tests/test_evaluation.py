@@ -1,7 +1,7 @@
 """Test evaluation system with numpy arrays."""
 
+from bigtwo_rl.agents import GreedyAgent, RandomAgent
 from bigtwo_rl.evaluation import Evaluator, Tournament
-from bigtwo_rl.agents import RandomAgent, GreedyAgent
 
 
 def test_evaluator_with_numpy():
@@ -56,12 +56,15 @@ def test_card_counting_with_numpy():
     """Test that card counting works correctly with numpy arrays."""
     print("Testing card counting consistency...")
 
-    from bigtwo_rl.core.rl_wrapper import BigTwoRLWrapper
-    from bigtwo_rl.core.observation_builder import standard_observation
     import numpy as np
 
+    from bigtwo_rl.core.observation_builder import strategic_observation
+    from bigtwo_rl.core.rl_wrapper import BigTwoRLWrapper
+
     env = BigTwoRLWrapper(
-        observation_config=standard_observation(), num_players=4, games_per_episode=1
+        observation_config=strategic_observation(),
+        num_players=4,
+        games_per_episode=1,
     )
     env.reset()
 

@@ -10,6 +10,7 @@ from .hyperparams import (
     FastExperimentalConfig,
     ReferenceExactConfig,
 )
+from .multi_player_buffer_enhanced import MultiPlayerRolloutBuffer
 from .multi_player_ppo import MultiPlayerPPO
 from .trainer import Trainer
 
@@ -21,6 +22,7 @@ __all__ = [
     "DefaultConfig",
     "FastExperimentalConfig",
     "MultiPlayerPPO",
+    "MultiPlayerRolloutBuffer",
     "ReferenceExactConfig",
     "Trainer",
 ]

@@ -1,8 +1,8 @@
 """Hyperparameter configurations for different training experiments."""
 
 import os
-from dataclasses import dataclass
 from abc import ABC
+from dataclasses import dataclass
 
 
 @dataclass(frozen=False)
@@ -97,30 +97,29 @@ class FastExperimentalConfig(BaseConfig):
 @dataclass(frozen=False)
 class ReferenceExactConfig(BaseConfig):
     """Exact hyperparameter match to reference implementation.
-    
+
     This configuration replicates the exact settings from the reference
     Big Two PPO implementation to maximize compatibility and performance.
     Based on analysis of mainBig2PPOSimulation.py and network architecture.
     """
-    
-    learning_rate: float = 2.5e-4      # Exact match to reference (0.00025)
-    n_steps: int = 20                  # Match reference batch collection
-    batch_size: int = 64               # Match reference mini-batch size  
-    n_epochs: int = 5                  # Match reference optimization epochs
-    gamma: float = 0.995               # Exact match to reference
-    gae_lambda: float = 0.95           # Exact match to reference
-    clip_range: float = 0.2            # Match reference PPO clipping
-    games_per_episode: int = 1         # Single game per episode like reference
-    
-    # Critical: match reference's vectorized environment setup
-    n_envs: int = 16                   # Reference uses multiple parallel games
-    
+
+    learning_rate: float = 2.5e-4  # Exact match to reference (0.00025)
+    n_steps: int = 20  # Match reference batch collection
+    batch_size: int = 64  # Match reference mini-batch size
+    n_epochs: int = 5  # Match reference optimization epochs
+    gamma: float = 0.995  # Exact match to reference
+    gae_lambda: float = 0.95  # Exact match to reference
+    clip_range: float = 0.2  # Match reference PPO clipping
+    games_per_episode: int = 1  # Single game per episode like reference
+
+    n_envs: int = 8  # Reference uses multiple parallel games
+
     def __post_init__(self):
         """Post-initialization to ensure proper batch structure."""
         # Ensure batch_size works with n_envs * n_steps
         # Reference uses mini-batches within the total collection
         total_batch = self.n_envs * self.n_steps  # 16 * 20 = 320
-        
+
         # Adjust batch_size to be compatible
         if self.batch_size > total_batch:
             self.batch_size = total_batch // 4  # Use quarter of total as mini-batch

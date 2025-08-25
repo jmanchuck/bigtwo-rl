@@ -7,12 +7,14 @@ This module provides an enhanced PPO implementation that integrates:
 """
 
 import torch as th
+import numpy as np
 from typing import Optional, Union, Dict, Any, Type, Callable
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.type_aliases import GymEnv, Schedule
 from stable_baselines3.common.policies import BasePolicy
 from stable_baselines3.common.utils import explained_variance
+from gymnasium import spaces
 
 from .multi_player_buffer_enhanced import MultiPlayerRolloutBuffer
 from .callbacks import MultiPlayerGAECallback
@@ -139,8 +141,8 @@ class MultiPlayerPPO(PPO):
                     buffer_stats = self.rollout_buffer.get_statistics()
                     self.logger.record("multiPlayer/games_completed", 
                                       buffer_stats['games_completed'])
-                    self.logger.record("multiPlayer/delayed_rewards_assigned",
-                                      buffer_stats['delayed_rewards_assigned'])
+                    self.logger.record("multiPlayer/immediate_rewards_assigned",
+                                      buffer_stats['immediate_rewards_assigned'])
     
     def collect_rollouts(
         self,
@@ -149,14 +151,103 @@ class MultiPlayerPPO(PPO):
         rollout_buffer,
         n_rollout_steps: int,
     ) -> bool:
-        """Enhanced rollout collection with multi-player awareness.
+        """Enhanced rollout collection with explicit player tracking.
         
-        This method maintains compatibility with stable-baselines3 while
-        ensuring proper integration with our enhanced buffer.
+        This method extracts current_player from environment info and passes it
+        to the buffer for proper player tracking, matching reference mb_pGos behavior.
         """
-        # Use standard PPO rollout collection
-        # The MultiPlayerRolloutBuffer handles the multi-player logic internally
-        return super().collect_rollouts(env, callback, rollout_buffer, n_rollout_steps)
+        assert self._last_obs is not None, "No previous observation was provided"
+        # Switch to eval mode (this affects batch norm / dropout)
+        self.policy.set_training_mode(False)
+
+        n_steps = 0
+        rollout_buffer.reset()
+        
+        callback.on_rollout_start()
+
+        while n_steps < n_rollout_steps:
+            if self.use_sde and self.sde_sample_freq > 0 and n_steps % self.sde_sample_freq == 0:
+                # Sample a new noise matrix
+                self.policy.reset_noise(env.num_envs)
+
+            with th.no_grad():
+                # Convert to PyTorch tensor or to TensorDict
+                obs_tensor = th.as_tensor(self._last_obs, device=self.device)
+                actions, values, log_probs = self.policy(obs_tensor)
+            actions = actions.cpu().numpy()
+
+            # Rescale and perform action
+            clipped_actions = actions
+
+            if isinstance(self.action_space, spaces.Box):
+                if self.policy.squash_output:
+                    clipped_actions = self.unscale_action(clipped_actions)
+                else:
+                    clipped_actions = np.clip(actions, self.action_space.low, self.action_space.high)
+
+            new_obs, rewards, dones, infos = env.step(clipped_actions)
+
+            self.num_timesteps += env.num_envs
+
+            # Give access to local variables
+            callback.update_locals(locals())
+            if not callback.on_step():
+                return False
+
+            self._update_info_buffer(infos)
+            n_steps += 1
+
+            if isinstance(self.action_space, spaces.Discrete):
+                # Reshape in case of discrete action
+                actions = actions.reshape(-1, 1)
+
+            # Handle timeout termination properly if it exists in infos
+            if infos is not None and len(infos) > 0:
+                if "TimeLimit.truncated" in infos[0]:
+                    terminal_obs = [info.get("terminal_observation") for info in infos]
+                else:
+                    terminal_obs = None
+                
+                # Extract current_player from info for proper tracking
+                current_players = []
+                for info in infos:
+                    if isinstance(info, dict) and "current_player" in info:
+                        current_players.append(info["current_player"])
+                    else:
+                        # Fallback to None - buffer will handle inference
+                        current_players.append(None)
+                
+                # Convert to numpy array if all are valid
+                if all(cp is not None for cp in current_players):
+                    current_players = np.array(current_players, dtype=int)
+                else:
+                    current_players = None
+            else:
+                terminal_obs = None
+                current_players = None
+
+            # Add to buffer with explicit player tracking
+            rollout_buffer.add(
+                self._last_obs,  # type: ignore[arg-type]
+                actions,
+                rewards,
+                self._last_episode_starts,  # type: ignore[arg-type]
+                values,
+                log_probs,
+                current_player=current_players,  # Pass player info to buffer
+            )
+            self._last_obs = new_obs  # type: ignore[assignment]
+            self._last_episode_starts = dones
+
+        with th.no_grad():
+            # Compute value for the last timestep
+            values = self.policy.predict_values(th.as_tensor(new_obs, device=self.device))  # type: ignore[arg-type]
+
+        rollout_buffer.compute_returns_and_advantage(last_values=values, dones=dones)
+
+        callback.on_rollout_end()
+
+        return True
     
     def get_multi_player_statistics(self) -> Dict[str, Any]:
         """Get multi-player specific training statistics.
@@ -198,6 +289,13 @@ class MultiPlayerPPO(PPO):
     
     def save(self, path, exclude=None, include=None):
         """Save model with multi-player enhancement metadata."""
+        # Exclude callback from serialization (contains non-serializable objects)
+        if exclude is None:
+            exclude = set()
+        else:
+            exclude = set(exclude)
+        exclude.add("multi_player_callback")
+        
         # Save the model state
         super().save(path, exclude=exclude, include=include)
         
@@ -222,6 +320,10 @@ class MultiPlayerPPO(PPO):
         model = super().load(path, env=env, device=device, custom_objects=custom_objects,
                            print_system_info=print_system_info, force_reset=force_reset, 
                            **kwargs)
+        
+        # Recreate the multi-player callback (was excluded from serialization)
+        model.multi_player_callback = MultiPlayerGAECallback(verbose=0)
+        model.multi_player_callback.model = model
         
         # Try to load metadata
         metadata_path = f"{path}_metadata.json"
