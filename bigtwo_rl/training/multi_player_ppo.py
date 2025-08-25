@@ -221,10 +221,16 @@ class MultiPlayerPPO(PPO):
                 if all(cp is not None for cp in current_players):
                     current_players = np.array(current_players, dtype=int)
                 else:
-                    current_players = None
+                    # If some are missing, fill with environment-based inference
+                    for i, cp in enumerate(current_players):
+                        if cp is None:
+                            current_players[i] = i % 4  # Environment index mod 4
+                    current_players = np.array(current_players, dtype=int)
             else:
                 terminal_obs = None
-                current_players = None
+                # When no infos available, infer player from environment count
+                # This handles initial rollout collection before any environment steps
+                current_players = np.arange(self.n_envs) % 4  # Assume 4-player game
 
             # Add to buffer with explicit player tracking
             rollout_buffer.add(

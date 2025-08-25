@@ -93,11 +93,6 @@ class Trainer:
         self.model_save_dir = model_save_dir
         self.tensorboard_log_dir = tensorboard_log_dir
 
-        # Enable multi-player enhancements by default (matching reference implementation)
-        self.enable_multi_player_enhancements = True
-
-        # Trainer initialized with multi-player algorithms
-
     def _create_model_instance(self, env, model_name: str, verbose: bool) -> MultiPlayerPPO:
         """Create PPO model instance.
 
@@ -226,7 +221,7 @@ class Trainer:
         self._save_model_and_metadata(model, models_dir, total_timesteps)
 
         # Post-train stats
-        if self.enable_multi_player_enhancements and hasattr(model, "get_multi_player_statistics"):
+        if hasattr(model, "get_multi_player_statistics"):
             stats = model.get_multi_player_statistics()
             # Enhanced training statistics available in stats
 
@@ -242,20 +237,15 @@ class Trainer:
         stats = {}
 
         # Add multi-player specific statistics if available
-        if (
-            self.enable_multi_player_enhancements
-            and hasattr(self, "model")
-            and hasattr(self.model, "get_multi_player_statistics")
-        ):
+        if hasattr(self, "model") and hasattr(self.model, "get_multi_player_statistics"):
             mp_stats = self.model.get_multi_player_statistics()
             stats.update({f"enhanced_{k}": v for k, v in mp_stats.items()})
 
         # Add configuration information
         stats.update(
             {
-                "multi_player_enhancements_enabled": self.enable_multi_player_enhancements,
                 "trainer_type": "Trainer",
-                "ppo_type": "MultiPlayerPPO" if self.enable_multi_player_enhancements else "StandardPPO",
+                "ppo_type": "MultiPlayerPPO",
             },
         )
 
@@ -309,12 +299,7 @@ class Trainer:
 
     def __repr__(self) -> str:
         """String representation of the trainer."""
-        enhancements = "ENABLED" if self.enable_multi_player_enhancements else "DISABLED"
-        return (
-            f"Trainer(enhancements={enhancements}, "
-            f"reward={type(self.reward_function).__name__}, "
-            f"hyperparams={type(self.hyperparams).__name__})"
-        )
+        return f"Trainer( reward={type(self.reward_function).__name__}, hyperparams={type(self.hyperparams).__name__})"
 
     def save_training_config(self, filepath: str | Path | None = None) -> str:
         """Save complete training configuration for reproducibility.
@@ -334,7 +319,6 @@ class Trainer:
 
         config = {
             "trainer_type": "Trainer",
-            "multi_player_enhancements": self.enable_multi_player_enhancements,
             "timestamp": datetime.now().isoformat(),
             "reward_function": {
                 "class": type(self.reward_function).__name__,
@@ -373,11 +357,16 @@ class Trainer:
             from ..agents.model_metadata import ModelMetadata
 
             test_env = self._make_env()
+            # Handle wrapped environments (e.g., ActionMasker)
+            env_to_check = test_env
+            while hasattr(env_to_check, "env") and not hasattr(env_to_check, "obs_config"):
+                env_to_check = env_to_check.env
+
             additional_info = {
                 "reward_function": self.reward_name,
                 "hyperparams": self.config_name,
                 "total_timesteps": total_timesteps,
             }
-            ModelMetadata.save_metadata(models_dir, test_env.obs_config, additional_info)
+            ModelMetadata.save_metadata(models_dir, env_to_check.obs_config, additional_info)
 
         # Training completed, model saved

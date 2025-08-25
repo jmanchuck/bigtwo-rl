@@ -377,6 +377,18 @@ class ObservationVectorizer:
             self._pass_counts[player] += 1
 
 
+def minimal_observation() -> ObservationConfig:
+    """Minimal observation configuration (57 features)."""
+    return ObservationBuilder().build()
+
+def standard_observation() -> ObservationConfig:
+    """Standard observation configuration (109 features)."""
+    return ObservationBuilder().standard().build()
+
+def memory_enhanced_observation() -> ObservationConfig:
+    """Memory enhanced observation configuration (217 features)."""
+    return ObservationBuilder().memory_enhanced().build()
+
 def strategic_observation() -> ObservationConfig:
     """Full strategic observation configuration."""
     return ObservationBuilder().strategic().build()
