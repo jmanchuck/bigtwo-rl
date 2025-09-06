@@ -72,6 +72,10 @@ class MultiPlayerPPO(PPO):
         # Ensure buffer kwargs include required parameters
         if rollout_buffer_kwargs is None:
             rollout_buffer_kwargs = {}
+        
+        # Set default batch_size if None (required for stable-baselines3 compatibility)
+        if batch_size is None:
+            batch_size = 64
     
         # Initialize parent PPO with our enhanced buffer
         super().__init__(
@@ -309,7 +313,16 @@ class MultiPlayerPPO(PPO):
         import json
         metadata = {
             'buffer_class': self.rollout_buffer.__class__.__name__,
-            'multi_player_statistics': self.get_multi_player_statistics()
+            'multi_player_statistics': self.get_multi_player_statistics(),
+            # Save critical hyperparameters that might get lost
+            'hyperparams': {
+                'batch_size': self.batch_size,
+                'n_steps': self.n_steps,
+                'n_epochs': self.n_epochs,
+                'learning_rate': self.learning_rate if isinstance(self.learning_rate, (int, float)) else str(self.learning_rate),
+                'gamma': self.gamma,
+                'gae_lambda': self.gae_lambda,
+            }
         }
         
         metadata_path = f"{path}_metadata.json"
@@ -322,6 +335,23 @@ class MultiPlayerPPO(PPO):
     def load(cls, path, env=None, device="auto", custom_objects=None, print_system_info=False, 
              force_reset=True, **kwargs):
         """Load MultiPlayerPPO model."""
+        # Try to load metadata first to get hyperparameters
+        metadata_path = f"{path}_metadata.json"
+        saved_hyperparams = {}
+        try:
+            import json
+            with open(metadata_path, 'r') as f:
+                metadata = json.load(f)
+            saved_hyperparams = metadata.get('hyperparams', {})
+            # MultiPlayerPPO metadata loaded
+        except FileNotFoundError:
+            # No metadata file found, will use defaults
+            pass
+        
+        # Override kwargs with saved hyperparameters if available
+        if 'batch_size' not in kwargs and 'batch_size' in saved_hyperparams:
+            kwargs['batch_size'] = saved_hyperparams['batch_size']
+        
         # Load the base model
         model = super().load(path, env=env, device=device, custom_objects=custom_objects,
                            print_system_info=print_system_info, force_reset=force_reset, 
@@ -330,17 +360,5 @@ class MultiPlayerPPO(PPO):
         # Recreate the multi-player callback (was excluded from serialization)
         model.multi_player_callback = MultiPlayerGAECallback(verbose=0)
         model.multi_player_callback.model = model
-        
-        # Try to load metadata
-        metadata_path = f"{path}_metadata.json"
-        try:
-            import json
-            with open(metadata_path, 'r') as f:
-                metadata = json.load(f)
-            
-            # MultiPlayerPPO metadata loaded
-        except FileNotFoundError:
-            # No metadata file found, using default settings
-            pass
         
         return model

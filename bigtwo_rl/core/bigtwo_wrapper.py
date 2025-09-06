@@ -13,6 +13,7 @@ from gymnasium import spaces
 
 from bigtwo_rl.training.rewards.base_reward import BaseReward
 
+from .action.calc import ActionMaskBuilder
 from .action_system import BigTwoActionSystem
 from .bigtwo import ToyBigTwoFullRules
 from .episode_manager import EpisodeManager
@@ -67,6 +68,8 @@ class BigTwoWrapper(gym.Env):
         # Fixed action space (breaking change!)
         self.action_space = spaces.Discrete(1365)
         self.action_system = BigTwoActionSystem()
+
+        self.action_masker = ActionMaskBuilder()
 
         # Initialize observation space immediately (needed for PPO model creation)
         temp_vectorizer = ObservationVectorizer(observation_config)
@@ -358,6 +361,8 @@ class BigTwoWrapper(gym.Env):
 
         current_player = self.game.current_player
         player_hand = self.game.hands[current_player]
+
+        return self.action_masker.full_mask_indices()
 
         return self.action_system.get_legal_action_mask(self.game, player_hand)
 

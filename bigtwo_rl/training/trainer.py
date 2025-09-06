@@ -9,13 +9,21 @@ import time
 from typing import Any
 
 from sb3_contrib.common.wrappers import ActionMasker
+from stable_baselines3.common.callbacks import EvalCallback
+from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.vec_env import DummyVecEnv
 
+from bigtwo_rl.core.bigtwo_wrapper import BigTwoWrapper
+from bigtwo_rl.core.observation_builder import ObservationConfig
 from bigtwo_rl.training.hyperparams import BaseConfig
 from bigtwo_rl.training.rewards.base_reward import BaseReward
 
-from ..core.observation_builder import ObservationConfig
+from .callbacks import BigTwoMetricsCallback
 from .masked_policy import MaskedBigTwoPolicy
 from .multi_player_ppo import MultiPlayerPPO
+from .self_play_callback import SelfPlayPPOCallback
+
+
 class Trainer:
     """Big Two trainer using 1,365-action space.
 
@@ -29,7 +37,7 @@ class Trainer:
         hyperparams: BaseConfig,
         observation_config: ObservationConfig,
         **kwargs,
-    ):
+    ) -> None:
         """Initialize Fixed Action Trainer.
 
         Args:
@@ -45,13 +53,13 @@ class Trainer:
         self.hyperparams = hyperparams
         self.config = hyperparams.to_dict()
         self.config_name = hyperparams.__class__.__name__
-        
+
         self.observation_config = observation_config
-        
+
         # Enhanced settings
-        self.verbose = kwargs.get('verbose', 1)
-        self.model_save_dir = kwargs.get('model_save_dir', './models')
-        self.tensorboard_log_dir = kwargs.get('tensorboard_log_dir', './logs')
+        self.verbose = kwargs.get("verbose", 1)
+        self.model_save_dir = kwargs.get("model_save_dir", "./models")
+        self.tensorboard_log_dir = kwargs.get("tensorboard_log_dir", "./logs")
 
     def _create_model_instance(self, env, model_name: str, verbose: bool) -> MultiPlayerPPO:
         """Create PPO model instance with masked policy.
@@ -71,7 +79,7 @@ class Trainer:
         if env.action_space.n != 1365:
             raise ValueError(f"Expected 1365 actions, got {env.action_space.n}")
 
-        model = MultiPlayerPPO(
+        return MultiPlayerPPO(
             policy=MaskedBigTwoPolicy,  # Our new policy with masking
             env=env,  # BigTwoWrapper
             learning_rate=self.config["learning_rate"],
@@ -86,16 +94,13 @@ class Trainer:
             device="auto",
         )
 
-        return model
-
-    def _make_env(self):
+    def _make_env(self) -> ActionMasker:
         """Create environment instance with fixed action space.
 
         Returns:
             Environment with fixed 1365-action space
 
         """
-        from ..core.bigtwo_wrapper import BigTwoWrapper
         env = BigTwoWrapper(
             observation_config=self.observation_config,
             games_per_episode=self.config["games_per_episode"],
@@ -125,21 +130,21 @@ class Trainer:
 
         # Build environments
         env, eval_env = self._setup_training_environments()
-        
+
         # Create model
         model_name = f"{self.config_name}_{self.reward_name}"
         model = self._create_model_instance(env, model_name, verbose=self.verbose >= 1)
-        
+
         # Prepare callbacks
         models_dir = os.path.join(self.model_save_dir, model_name)
         os.makedirs(models_dir, exist_ok=True)
         callbacks = self._setup_callbacks(eval_env, models_dir)
-        
+
         # Learn
         start_time = time.time()
-        model.learn(total_timesteps=total_timesteps, callback=callbacks, progress_bar=kwargs.get('progress_bar', True))
+        model.learn(total_timesteps=total_timesteps, callback=callbacks, progress_bar=kwargs.get("progress_bar", True))
         end_time = time.time()
-        
+
         # Save
         self._save_model_and_metadata(model, models_dir, total_timesteps)
 
@@ -151,28 +156,22 @@ class Trainer:
         print(f"📁 Model saved to: {models_dir}")
 
         return model, models_dir
-    
+
     def _setup_training_environments(self):
         """Create training and evaluation environments."""
-        from stable_baselines3.common.vec_env import DummyVecEnv
-        from stable_baselines3.common.monitor import Monitor
-        
+
         def make_env(is_eval=False):
             env = self._make_env()
             if is_eval:
                 env = Monitor(env)
             return env
-        
+
         env = DummyVecEnv([lambda: make_env() for _ in range(self.config["n_envs"])])
         eval_env = DummyVecEnv([lambda: make_env(is_eval=True)])
         return env, eval_env
-    
+
     def _setup_callbacks(self, eval_env, models_dir: str):
         """Setup training callbacks (evaluation, metrics, snapshots)."""
-        from stable_baselines3.common.callbacks import EvalCallback
-        from .callbacks import BigTwoMetricsCallback
-        from .self_play_callback import SelfPlayPPOCallback
-        
         eval_callback = EvalCallback(
             eval_env,
             best_model_save_path=models_dir,
@@ -186,20 +185,20 @@ class Trainer:
         callbacks.append(BigTwoMetricsCallback(verbose=0))
         callbacks.append(SelfPlayPPOCallback(verbose=1))
         return callbacks
-    
+
     def _save_model_and_metadata(self, model, models_dir: str, total_timesteps: int):
         """Save final model and metadata."""
         model.save(f"{models_dir}/final_model")
-        
+
         if self.observation_config is not None:
             from ..agents.model_metadata import ModelMetadata
-            
+
             test_env = self._make_env()
             # Handle wrapped environments (e.g., ActionMasker)
             env_to_check = test_env
             while hasattr(env_to_check, "env") and not hasattr(env_to_check, "obs_config"):
                 env_to_check = env_to_check.env
-            
+
             additional_info = {
                 "reward_function": self.reward_name,
                 "hyperparams": self.config_name,
@@ -367,38 +366,4 @@ def create_trainer(use_fixed_actions: bool = True, enhanced: bool = False, **kwa
             return EnhancedTrainer(**kwargs)
         return Trainer(**kwargs)
     # Fall back to legacy trainer
-    return Trainer(**kwargs)
-
-
-# Migration helper
-def migrate_from_legacy_trainer(
-    legacy_trainer: Trainer,
-    preserve_settings: bool = True,
-) -> Trainer:
-    """Migrate settings from legacy trainer to fixed action trainer.
-
-    Args:
-        legacy_trainer: Existing legacy trainer
-        preserve_settings: Whether to preserve all settings
-
-    Returns:
-        New Trainer with migrated settings
-
-    """
-    # Extract settings from legacy trainer
-    kwargs = {}
-
-    if hasattr(legacy_trainer, "reward_function"):
-        kwargs["reward_function"] = legacy_trainer.reward_function
-    if hasattr(legacy_trainer, "hyperparams"):
-        kwargs["hyperparams"] = legacy_trainer.hyperparams
-    if hasattr(legacy_trainer, "observation_config"):
-        kwargs["observation_config"] = legacy_trainer.observation_config
-
-    if preserve_settings:
-        # Copy additional attributes
-        for attr in ["tensorboard_log_dir", "models_dir"]:
-            if hasattr(legacy_trainer, attr):
-                kwargs[attr] = getattr(legacy_trainer, attr)
-
     return Trainer(**kwargs)
