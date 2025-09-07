@@ -1,8 +1,10 @@
 """Enhanced rollout buffer for multi-player turn-based games.
 
-This module implements delayed reward assignment matching the reference
-Big Two PPO implementation. The key insight is that rewards should be
-assigned to the last 4 actions each player made when a game ends.
+This module implements exact reward assignment matching the reference
+Big Two PPO implementation. Key features:
+- Tracks which player made each move (like mb_pGos in reference)
+- Assigns rewards immediately to exactly the last 4 transitions per player
+- Marks those transitions as terminal for proper GAE computation
 """
 
 import numpy as np
@@ -14,15 +16,16 @@ import torch as th
 
 
 class MultiPlayerRolloutBuffer(RolloutBuffer):
-    """Custom rollout buffer that handles delayed reward assignment for 4-player games.
-    
+    """Custom rollout buffer matching reference implementation's reward assignment.
+
     Key features:
-    - Maintains a buffer of last 4 transitions per environment
-    - When a game ends, assigns rewards to the buffered transitions
-    - Matches reference implementation's reward assignment (lines 111-114)
+    - Explicitly tracks which player made each move (mb_pGos equivalent)
+    - Assigns rewards immediately when game ends, not delayed
+    - Ensures exactly last 4 transitions per player receive final reward
+    - Marks those transitions as terminal for GAE computation
     - Integrates seamlessly with stable-baselines3 PPO
     """
-    
+
     def __init__(
         self,
         buffer_size: int,
@@ -34,14 +37,22 @@ class MultiPlayerRolloutBuffer(RolloutBuffer):
         n_envs: int = 1,
     ):
         # Initialize our attributes before calling super().__init__ (which calls reset())
-        self.transition_buffer = [deque(maxlen=4) for _ in range(n_envs)]
-        self.pending_rewards = [None for _ in range(n_envs)]
-        self.delayed_rewards_assigned = 0
+        self.n_envs = n_envs
+
+        # Track which player made each move (equivalent to mb_pGos in reference)
+        # This MUST match buffer_size to avoid index errors
+        self.player_who_moved = None  # Will be initialized in reset()
+
+        # Track last 4 positions for each player in each environment
+        self.last_player_positions = [{i: deque(maxlen=4) for i in range(4)} for _ in range(n_envs)]
+
+        # Statistics
+        self.immediate_rewards_assigned = 0
         self.games_completed = 0
-        
+
         # Now call parent initialization
         super().__init__(buffer_size, observation_space, action_space, device, gae_lambda, gamma, n_envs)
-        
+
     def add(
         self,
         obs: np.ndarray,
@@ -50,173 +61,222 @@ class MultiPlayerRolloutBuffer(RolloutBuffer):
         episode_start: np.ndarray,
         value: th.Tensor,
         log_prob: th.Tensor,
+        current_player: Optional[Union[int, np.ndarray]] = None,
     ) -> None:
-        """Add a step to the buffer with potential delayed reward assignment.
-        
-        This method checks if any environment has multi-player rewards and handles
-        delayed assignment, otherwise falls back to normal behavior.
+        """Add a step to the buffer with immediate reward assignment for game-ending rewards.
+
+        CRITICAL: This method exactly matches reference behavior:
+        1. ALWAYS adds the current step to buffer first
+        2. When game ends, IMMEDIATELY assigns rewards to last 4 transitions per player
+        3. Marks those 4 transitions as terminal for GAE
+        4. Never delays reward assignment to next cycle
+
+        Args:
+            obs, action, reward, episode_start, value, log_prob: Standard SB3 buffer inputs
+            current_player: Which player made the move (0-3), or array for multi-env
         """
-        # Check if any environment has multi-player game rewards
-        has_game_end_rewards = False
-        processed_rewards = reward.copy() if hasattr(reward, 'copy') else np.array(reward)
-        
+        # STEP 1: Always add current step to buffer first (even if game ended)
+        # This ensures we have the complete game state before reward assignment
+        self._add_normal_step(obs, action, reward, episode_start, value, log_prob, current_player)
+
+        # STEP 2: Check if any environment has multi-player game-ending rewards
+        game_ended_envs = []
         for env_idx in range(self.n_envs):
-            env_reward = reward[env_idx] if hasattr(reward, '__len__') and len(reward) > env_idx else reward
-            
+            env_reward = reward[env_idx] if hasattr(reward, "__len__") and len(reward) > env_idx else reward
+
             # Check if this is a multi-player game ending with rewards for all players
             if isinstance(env_reward, (list, np.ndarray)) and len(env_reward) == 4:
-                # Game ended - handle delayed reward assignment
-                self._handle_game_end_rewards(env_reward, env_idx)
-                self.games_completed += 1
-                has_game_end_rewards = True
-                # Set reward to 0 for normal processing (we handled the real reward above)
-                if hasattr(processed_rewards, '__setitem__'):
-                    processed_rewards[env_idx] = 0.0
-                else:
-                    processed_rewards = 0.0
-            else:
-                # Store transition for potential future delayed reward assignment
-                self._store_transition(
-                    obs[env_idx] if self.n_envs > 1 else obs,
-                    action[env_idx] if hasattr(action, '__len__') and len(action) > env_idx else action,
-                    env_reward,
-                    episode_start[env_idx] if hasattr(episode_start, '__len__') and len(episode_start) > env_idx else episode_start,
-                    value[env_idx] if self.n_envs > 1 else value,
-                    log_prob[env_idx] if self.n_envs > 1 else log_prob,
-                    env_idx
-                )
-        
-        # If no game-ending rewards, proceed with normal processing
-        if not has_game_end_rewards:
-            super().add(obs, action, processed_rewards, episode_start, value, log_prob)
-    
-    def _store_transition(
-        self, 
-        obs: np.ndarray, 
-        action: int, 
-        reward: float, 
-        episode_start: bool,
-        value: th.Tensor, 
-        log_prob: th.Tensor, 
-        env_idx: int
+                game_ended_envs.append((env_idx, env_reward))
+
+        # STEP 3: IMMEDIATELY assign final rewards (same cycle, not delayed)
+        for env_idx, final_rewards in game_ended_envs:
+            self._assign_final_game_rewards_immediately(final_rewards, env_idx)
+            self.games_completed += 1
+
+    def _add_normal_step(
+        self,
+        obs: np.ndarray,
+        action: np.ndarray,
+        reward: np.ndarray,
+        episode_start: np.ndarray,
+        value: th.Tensor,
+        log_prob: th.Tensor,
+        current_player: Optional[Union[int, np.ndarray]] = None,
     ) -> None:
-        """Store a transition in the buffer for potential delayed reward assignment."""
-        transition = {
-            'obs': obs.copy(),
-            'action': action,
-            'reward': reward,
-            'episode_start': episode_start,
-            'value': value.clone() if isinstance(value, th.Tensor) else value,
-            'log_prob': log_prob.clone() if isinstance(log_prob, th.Tensor) else log_prob,
-        }
-        self.transition_buffer[env_idx].append(transition)
-    
-    def _handle_game_end_rewards(self, game_rewards: Union[List, np.ndarray], env_idx: int) -> None:
-        """Handle delayed reward assignment when a game ends.
-        
-        This implements the reference implementation's key insight (lines 111-114):
-        When a game ends, assign the final rewards to the last 4 transitions.
-        
+        """Add a normal step (not game-ending) to the buffer.
+
+        This tracks player positions for future reward assignment.
+        """
+        # If current player not provided, we cannot safely infer it
+        if current_player is None:
+            # Log warning and use fallback - this should not happen in properly configured training
+            import warnings
+
+            warnings.warn(
+                "current_player not provided to buffer.add(). This breaks proper player tracking "
+                "for multi-player GAE. Using fallback position-based inference which may be incorrect.",
+                UserWarning,
+            )
+            current_player = self.pos % 4  # Use current buffer position as fallback
+
+        # Store current buffer position before adding to buffer
+        current_pos = self.pos
+
+        # Use standard buffer addition first
+        super().add(obs, action, reward, episode_start, value, log_prob)
+
+        # Then track which player made this move at the position we just filled
+        if isinstance(current_player, np.ndarray):
+            # Multi-environment case
+            for env_idx in range(self.n_envs):
+                player_idx = current_player[env_idx] if env_idx < len(current_player) else current_player[0]
+                # Track this buffer position for this player in this environment
+                self.last_player_positions[env_idx][player_idx].append(current_pos)
+        else:
+            # Single environment case - for each env, track the current player's position
+            for env_idx in range(self.n_envs):
+                self.last_player_positions[env_idx][current_player].append(current_pos)
+
+        # Store which player made this move at the current buffer position
+        if isinstance(current_player, np.ndarray):
+            # For multi-environment case, use the first environment's player or handle each env
+            # Since we're storing per buffer position, we need to pick one value
+            self.player_who_moved[current_pos] = current_player[0] if len(current_player) > 0 else 0
+        else:
+            self.player_who_moved[current_pos] = current_player
+
+    def _assign_final_game_rewards_immediately(self, game_rewards: Union[List, np.ndarray], env_idx: int) -> None:
+        """CRITICAL: Assign rewards to exactly 4 transitions per player, immediately.
+
+        This exactly matches reference implementation (lines 111-114):
+        mb_rewards[-1][i] = reward[mb_pGos[-1][i]-1] / rewardNormalization
+        mb_rewards[-2][i] = reward[mb_pGos[-2][i]-1] / rewardNormalization
+        mb_rewards[-3][i] = reward[mb_pGos[-3][i]-1] / rewardNormalization
+        mb_rewards[-4][i] = reward[mb_pGos[-4][i]-1] / rewardNormalization
+
+        KEY DIFFERENCES FROM OLD IMPLEMENTATION:
+        1. EXACTLY 4 transitions per player (pad with dummy if needed)
+        2. IMMEDIATE assignment (same cycle)
+        3. ALL 4 marked as terminal for GAE
+
         Args:
-            game_rewards: Array of rewards for all 4 players
+            game_rewards: Array of rewards for all 4 players [r0, r1, r2, r3]
             env_idx: Environment index
         """
-        buffer = self.transition_buffer[env_idx]
-        
-        if len(buffer) == 0:
+        if len(game_rewards) != 4:
             return
-            
-        # Assign rewards to the last N transitions (up to 4)
-        # This matches reference implementation's reward assignment
-        num_transitions = min(len(buffer), 4)
-        
-        for i in range(num_transitions):
-            transition = buffer[-(num_transitions - i)]  # Get from end backwards
-            
-            # In the reference, rewards are assigned based on player position
-            # For simplicity, we'll assign the first player's reward to all transitions
-            # This can be enhanced later to properly map player positions
-            assigned_reward = game_rewards[0] if len(game_rewards) > 0 else 0.0
-            
-            # Manually add to the buffer arrays (bypassing the add() method to avoid recursion)
-            if self.full:
-                return  # Buffer is full, can't add more
-                
-            # Add directly to buffer arrays
-            self.observations[self.pos] = transition['obs']
-            self.actions[self.pos] = transition['action']
-            self.rewards[self.pos] = assigned_reward
-            self.episode_starts[self.pos] = transition['episode_start']
-            self.values[self.pos] = transition['value']
-            self.log_probs[self.pos] = transition['log_prob']
-            
-            self.pos += 1
-            if self.pos == self.buffer_size:
-                self.full = True
-                self.pos = 0
-            
-            self.delayed_rewards_assigned += 1
-        
-        # Clear the buffer for this environment
-        self.transition_buffer[env_idx].clear()
-    
+
+        # REFERENCE EXACT: Assign rewards to exactly the last 4 transitions
+        # mb_rewards[-1][i] = reward[mb_pGos[-1][i]-1] / rewardNormalization
+        # mb_rewards[-2][i] = reward[mb_pGos[-2][i]-1] / rewardNormalization
+        # mb_rewards[-3][i] = reward[mb_pGos[-3][i]-1] / rewardNormalization
+        # mb_rewards[-4][i] = reward[mb_pGos[-4][i]-1] / rewardNormalization
+
+        # Get exactly the last 4 buffer positions
+        positions_to_assign = []
+        for i in range(1, 5):  # -1, -2, -3, -4 in reference terms
+            if self.pos >= i:
+                pos = (self.pos - i) % self.buffer_size
+                positions_to_assign.append(pos)
+
+        # Ensure we have exactly 4 positions (pad if needed)
+        while len(positions_to_assign) < 4:
+            positions_to_assign.append(0)  # Pad with dummy position if needed
+
+        # Assign rewards to these exact 4 positions
+        for i, buffer_pos in enumerate(positions_to_assign):
+            if buffer_pos < self.buffer_size:
+                # Get which player made this move
+                player_who_moved = self.player_who_moved[buffer_pos]
+
+                # Assign this player's final reward
+                if 0 <= player_who_moved < 4:
+                    self.rewards[buffer_pos] = game_rewards[player_who_moved]
+                    self.immediate_rewards_assigned += 1
+
+                    # Mark as terminal for GAE (reference lines 165-167)
+                    # mb_dones[-2][i] = True, mb_dones[-3][i] = True, mb_dones[-4][i] = True
+                    if i > 0:  # All except the very last transition (-1 position)
+                        next_pos = (buffer_pos + 1) % self.buffer_size
+                        if next_pos < self.buffer_size:
+                            self.episode_starts[next_pos] = True
+
+        # Clear tracking for this environment (game ended)
+        for player_idx in range(4):
+            self.last_player_positions[env_idx][player_idx].clear()
+
     def compute_multi_player_gae(self, gamma: float, gae_lambda: float) -> None:
-        """Compute GAE for multi-player turn-based games.
-        
+        """Compute GAE for multi-player turn-based games using explicit player tracking.
+
         This implements the reference implementation's multi-player GAE calculation
-        (lines 139-145) where GAE is calculated separately for each player position
-        accounting for the 4-step intervals between player actions.
+        but uses actual player_who_moved data instead of assuming 4-step intervals.
+        This matches the reference mb_pGos-based approach exactly.
         """
         advantages = np.zeros_like(self.rewards)
-        
-        # For each player position in the 4-player cycle
-        for player_pos in range(4):
+
+        # For each player (0, 1, 2, 3)
+        for player_id in range(4):
             last_gae_lam = 0.0
-            
-            # Get all timesteps for this player (every 4th step starting from player_pos)
-            player_steps = list(range(player_pos, self.buffer_size, 4))
-            
-            # Go backwards through this player's timesteps
-            for step_idx in reversed(player_steps):
+
+            # Get all timesteps where this player made moves (using actual tracking data)
+            player_steps = []
+            for step_idx in range(self.buffer_size):
+                if step_idx < len(self.player_who_moved) and self.player_who_moved[step_idx] == player_id:
+                    player_steps.append(step_idx)
+
+            # Sort to ensure chronological order
+            player_steps.sort()
+
+            # Go backwards through this player's actual timesteps
+            for i in reversed(range(len(player_steps))):
+                step_idx = player_steps[i]
+
                 if step_idx >= self.buffer_size:
                     continue
-                    
+
                 # Determine next value and terminal state
-                if step_idx + 4 < self.buffer_size:
-                    # Next step exists
-                    next_non_terminal = 1.0 - self.episode_starts[step_idx + 4]
-                    next_values = self.values[step_idx + 4]
+                if i + 1 < len(player_steps):
+                    # Next step exists for this player
+                    next_step_idx = player_steps[i + 1]
+                    if next_step_idx < self.buffer_size:
+                        next_non_terminal = 1.0 - self.episode_starts[next_step_idx]
+                        next_values = self.values[next_step_idx]
+                    else:
+                        next_non_terminal = 0.0
+                        next_values = 0.0
                 else:
                     # This is the final step for this player
                     next_non_terminal = 0.0
                     next_values = 0.0
-                
-                # TD error calculation
-                delta = (self.rewards[step_idx] + 
-                        gamma * next_values * next_non_terminal - 
-                        self.values[step_idx])
-                
+
+                # TD error calculation (matches reference)
+                delta = self.rewards[step_idx] + gamma * next_values * next_non_terminal - self.values[step_idx]
+
                 # GAE calculation (matches reference line 145)
-                advantages[step_idx] = last_gae_lam = (
-                    delta + gamma * gae_lambda * next_non_terminal * last_gae_lam
-                )
-        
+                advantages[step_idx] = last_gae_lam = delta + gamma * gae_lambda * next_non_terminal * last_gae_lam
+
         # Update the buffer with new advantages and returns
         self.advantages = advantages
         self.returns = advantages + self.values
-    
+
     def get_statistics(self) -> dict:
         """Get buffer statistics for monitoring."""
         return {
-            'delayed_rewards_assigned': self.delayed_rewards_assigned,
-            'games_completed': self.games_completed,
-            'buffer_sizes': [len(buf) for buf in self.transition_buffer]
+            "immediate_rewards_assigned": self.immediate_rewards_assigned,
+            "games_completed": self.games_completed,
+            "player_position_tracking": [
+                {f"player_{i}": len(positions[i]) for i in range(4)} for positions in self.last_player_positions
+            ],
         }
-    
+
     def reset(self) -> None:
-        """Reset the buffer and clear transition buffers."""
+        """Reset the buffer and clear player position tracking."""
         super().reset()
-        for buf in self.transition_buffer:
-            buf.clear()
-        self.delayed_rewards_assigned = 0
+
+        # Reset player tracking - initialize array with same size as buffer
+        self.player_who_moved = np.zeros(self.buffer_size, dtype=int)
+        self.last_player_positions = [{i: deque(maxlen=4) for i in range(4)} for _ in range(self.n_envs)]
+
+        # Reset statistics
+        self.immediate_rewards_assigned = 0
         self.games_completed = 0

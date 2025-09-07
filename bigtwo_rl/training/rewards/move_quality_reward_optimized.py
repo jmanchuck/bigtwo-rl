@@ -40,12 +40,7 @@ class MoveQualityRewardOptimized(BaseReward):
         self.game_reward_scale = game_reward_scale
 
         # Validate weights sum to 1.0
-        total_weight = (
-            card_efficiency_weight
-            + hand_type_weight
-            + timing_weight
-            + preservation_weight
-        )
+        total_weight = card_efficiency_weight + hand_type_weight + timing_weight + preservation_weight
         if abs(total_weight - 1.0) > 1e-6:
             raise ValueError(f"Weights must sum to 1.0, got {total_weight}")
 
@@ -75,15 +70,11 @@ class MoveQualityRewardOptimized(BaseReward):
         self._hand_type_cache = {}
         self._potential_cache = {}
 
-    def move_bonus(
-        self, move_cards: List[int], game_context: Optional[Dict] = None
-    ) -> float:
+    def move_bonus(self, move_cards: List[int], game_context: Optional[Dict] = None) -> float:
         """Calculate immediate move quality reward with optimizations."""
         # Handle pass moves (fast path)
         if not move_cards:
-            return (
-                self._evaluate_pass_quality_fast(game_context) * self.move_reward_scale
-            )
+            return self._evaluate_pass_quality_fast(game_context) * self.move_reward_scale
 
         # Extract game context with defaults (minimize dict lookups)
         if game_context is None:
@@ -92,9 +83,7 @@ class MoveQualityRewardOptimized(BaseReward):
             game_phase = "MIDGAME"
         else:
             remaining_hand = game_context.get("remaining_hand", [])
-            opponent_card_counts = game_context.get(
-                "opponent_card_counts", [10, 10, 10]
-            )
+            opponent_card_counts = game_context.get("opponent_card_counts", [10, 10, 10])
             game_phase = game_context.get("game_phase", "MIDGAME")
 
         # Pre-convert to numpy arrays once
@@ -102,21 +91,13 @@ class MoveQualityRewardOptimized(BaseReward):
         remaining_hand_np = np.array(remaining_hand) if remaining_hand else np.array([])
 
         # Calculate all scores in parallel where possible
-        efficiency_score = self._card_efficiency_score_fast(
-            move_cards_np, remaining_hand_np
-        )
+        efficiency_score = self._card_efficiency_score_fast(move_cards_np, remaining_hand_np)
         hand_type_score = self._hand_type_score_fast(move_cards_np)
-        timing_score = self._timing_score_fast(
-            len(move_cards), opponent_card_counts, game_phase
-        )
-        preservation_score = self._hand_preservation_score_fast(
-            move_cards_np, remaining_hand_np
-        )
+        timing_score = self._timing_score_fast(len(move_cards), opponent_card_counts, game_phase)
+        preservation_score = self._hand_preservation_score_fast(move_cards_np, remaining_hand_np)
 
         # Vectorized weighted combination
-        scores = np.array(
-            [efficiency_score, hand_type_score, timing_score, preservation_score]
-        )
+        scores = np.array([efficiency_score, hand_type_score, timing_score, preservation_score])
         weights = np.array(
             [
                 self.card_efficiency_weight,
@@ -129,9 +110,7 @@ class MoveQualityRewardOptimized(BaseReward):
         total_quality = np.dot(scores, weights)
         return total_quality * self.move_reward_scale
 
-    def _card_efficiency_score_fast(
-        self, played_cards: np.ndarray, remaining_hand: np.ndarray
-    ) -> float:
+    def _card_efficiency_score_fast(self, played_cards: np.ndarray, remaining_hand: np.ndarray) -> float:
         """Optimized card efficiency scoring using vectorized operations."""
         if len(played_cards) == 0 or len(remaining_hand) == 0:
             return 0.5  # Fast path for edge cases
@@ -181,9 +160,7 @@ class MoveQualityRewardOptimized(BaseReward):
         hand_type_idx = self._identify_hand_type_fast(move_cards_tuple)
         return self._hand_type_scores[hand_type_idx]
 
-    def _timing_score_fast(
-        self, move_strength: int, opponent_card_counts: List[int], game_phase: str
-    ) -> float:
+    def _timing_score_fast(self, move_strength: int, opponent_card_counts: List[int], game_phase: str) -> float:
         """Optimized timing score using lookup table approach."""
         if not opponent_card_counts:
             return 0.5
@@ -206,9 +183,7 @@ class MoveQualityRewardOptimized(BaseReward):
             # Single card
             return 0.5
 
-    def _hand_preservation_score_fast(
-        self, played_cards: np.ndarray, remaining_hand: np.ndarray
-    ) -> float:
+    def _hand_preservation_score_fast(self, played_cards: np.ndarray, remaining_hand: np.ndarray) -> float:
         """Optimized preservation score with simplified heuristics."""
         if len(remaining_hand) == 0:
             return 1.0  # Perfect preservation when hand is empty
@@ -364,9 +339,7 @@ class MoveQualityRewardOptimized(BaseReward):
         else:
             return -0.1 * cards_left * self.game_reward_scale
 
-    def episode_bonus(
-        self, games_won: int, total_games: int, avg_cards_left: float
-    ) -> float:
+    def episode_bonus(self, games_won: int, total_games: int, avg_cards_left: float) -> float:
         """Simple episode bonus (unchanged from original)."""
         win_rate = games_won / total_games if total_games > 0 else 0
         return (win_rate - 0.25) * 0.5

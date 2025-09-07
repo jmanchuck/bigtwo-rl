@@ -62,19 +62,12 @@ class SelfPlayPPOCallback(BaseCallback):
                 info = self.locals["infos"][env_idx]
 
                 # Check if this environment completed an episode with multi-player experiences
-                if (
-                    info.get("episode_complete", False)
-                    and "multi_player_experiences" in info
-                ):
-                    self._process_multi_player_experiences(
-                        info["multi_player_experiences"], env_idx
-                    )
+                if info.get("episode_complete", False) and "multi_player_experiences" in info:
+                    self._process_multi_player_experiences(info["multi_player_experiences"], env_idx)
 
         return True
 
-    def _process_multi_player_experiences(
-        self, experiences: List[Dict[str, Any]], env_idx: int
-    ) -> None:
+    def _process_multi_player_experiences(self, experiences: List[Dict[str, Any]], env_idx: int) -> None:
         """Process multi-player experiences and add them to PPO's buffer.
 
         Args:
@@ -95,16 +88,12 @@ class SelfPlayPPOCallback(BaseCallback):
         for player_idx in range(1, 4):  # Players 1, 2, 3 (Player 0 already in buffer)
             player_exp_list = player_experiences[player_idx]
             if player_exp_list:
-                self._add_player_experiences_to_buffer(
-                    player_exp_list, env_idx, player_idx
-                )
+                self._add_player_experiences_to_buffer(player_exp_list, env_idx, player_idx)
 
         # Update statistics
         self.total_episodes_processed += 1
         for player_idx in range(4):
-            self.experiences_per_player[player_idx] += len(
-                player_experiences[player_idx]
-            )
+            self.experiences_per_player[player_idx] += len(player_experiences[player_idx])
 
         # Log statistics periodically
         if self.total_episodes_processed % 10 == 0:
@@ -162,9 +151,7 @@ class SelfPlayPPOCallback(BaseCallback):
         # Process any pending experiences from previous episodes
         if hasattr(self, "_pending_experiences") and self._pending_experiences:
             if self.verbose >= 1:
-                self.logger.record(
-                    "self_play/pending_experiences", len(self._pending_experiences)
-                )
+                self.logger.record("self_play/pending_experiences", len(self._pending_experiences))
 
             # For now, we'll just clear them since properly integrating them
             # into PPO's buffer requires more complex intervention
@@ -174,49 +161,22 @@ class SelfPlayPPOCallback(BaseCallback):
     def _log_multi_player_stats(self) -> None:
         """Log multi-player training statistics."""
         if self.verbose >= 1:
-            self.logger.record(
-                "self_play/total_episodes_processed", self.total_episodes_processed
-            )
+            self.logger.record("self_play/total_episodes_processed", self.total_episodes_processed)
             self.logger.record(
                 "self_play/total_multi_player_experiences",
                 self.total_multi_player_experiences,
             )
 
             for i in range(4):
-                self.logger.record(
-                    f"self_play/experiences_player_{i}", self.experiences_per_player[i]
-                )
+                self.logger.record(f"self_play/experiences_player_{i}", self.experiences_per_player[i])
 
             if self.total_episodes_processed > 0:
-                avg_exp_per_episode = (
-                    self.total_multi_player_experiences / self.total_episodes_processed
-                )
-                self.logger.record(
-                    "self_play/avg_experiences_per_episode", avg_exp_per_episode
-                )
+                avg_exp_per_episode = self.total_multi_player_experiences / self.total_episodes_processed
+                self.logger.record("self_play/avg_experiences_per_episode", avg_exp_per_episode)
 
     def _on_training_end(self) -> None:
         """Called at the end of training."""
-        if self.verbose >= 1:
-            print("\n" + "=" * 50)
-            print("Self-Play Training Summary:")
-            print(f"Episodes processed: {self.total_episodes_processed}")
-            print(
-                f"Total multi-player experiences collected: {self.total_multi_player_experiences}"
-            )
-            print("Experiences per player:")
-            for i in range(4):
-                print(f"  Player {i}: {self.experiences_per_player[i]}")
-
-            if self.total_episodes_processed > 0:
-                avg_exp = (
-                    self.total_multi_player_experiences / self.total_episodes_processed
-                )
-                print(f"Average experiences per episode: {avg_exp:.1f}")
-                print(
-                    f"Training data multiplier: {avg_exp / 10:.1f}x (compared to single-player)"
-                )
-            print("=" * 50 + "\n")
+        # Self-play training summary available in class attributes
 
 
 class SimpleSelfPlayCallback(BaseCallback):
@@ -238,25 +198,16 @@ class SimpleSelfPlayCallback(BaseCallback):
 
     def _on_training_start(self) -> None:
         """Called at the start of training. Inject model reference into environments."""
-        if self.verbose >= 1:
-            print(
-                f"Self-play callback: Training start - env type: {type(self.training_env)}"
-            )
+        # Training started
 
         # Handle different VecEnv types
         if hasattr(self.training_env, "envs"):
             # DummyVecEnv case - direct access to environments
-            if self.verbose >= 1:
-                print(
-                    f"Self-play callback: Found {len(self.training_env.envs)} environments in {type(self.training_env)}"
-                )
+            # Found environments
 
             for i, env in enumerate(self.training_env.envs):
                 target_env = self._get_base_env(env)
-                if self.verbose >= 1:
-                    print(
-                        f"Self-play callback: Env {i} - target type: {type(target_env)}, has method: {hasattr(target_env, 'set_model_reference')}"
-                    )
+                # Environment inspection
 
                 if hasattr(target_env, "set_model_reference"):
                     target_env.set_model_reference(self.model)
@@ -267,32 +218,20 @@ class SimpleSelfPlayCallback(BaseCallback):
                 # This won't work well for model objects due to pickling issues
                 self.training_env.env_method("set_model_reference", self.model)
                 self.model_injected = True
-                if self.verbose >= 1:
-                    print(
-                        f"Self-play callback: Model reference injected via env_method"
-                    )
+                # Model reference injected via env_method
             except Exception as e:
-                if self.verbose >= 1:
-                    print(f"Self-play callback: env_method injection failed: {e}")
-                    print(
-                        "Model sharing not supported with SubprocVecEnv - consider using DummyVecEnv"
-                    )
+                # env_method injection failed
+                pass
         else:
             # Single env case
             target_env = self._get_base_env(self.training_env)
-            if self.verbose >= 1:
-                print(
-                    f"Self-play callback: Single env - target type: {type(target_env)}, has method: {hasattr(target_env, 'set_model_reference')}"
-                )
+            # Single environment inspection
 
             if hasattr(target_env, "set_model_reference"):
                 target_env.set_model_reference(self.model)
                 self.model_injected = True
 
-        if self.verbose >= 1:
-            print(
-                f"Self-play callback: Model reference injected into environments: {self.model_injected}"
-            )
+        # Model reference injection completed
 
     def _get_base_env(self, env):
         """Get the base BigTwoRLWrapper from potentially wrapped environment."""
@@ -315,45 +254,23 @@ class SimpleSelfPlayCallback(BaseCallback):
         # Check for completed episodes with multi-player experiences
         if "infos" in self.locals:
             for info in self.locals["infos"]:
-                if (
-                    info.get("episode_complete", False)
-                    and "multi_player_experiences" in info
-                ):
+                if info.get("episode_complete", False) and "multi_player_experiences" in info:
                     experiences = info["multi_player_experiences"]
                     self.multi_player_episodes += 1
                     self.total_experiences_collected += len(experiences)
 
                     if self.verbose >= 1 and self.multi_player_episodes % 10 == 0:
-                        avg_exp = (
-                            self.total_experiences_collected
-                            / self.multi_player_episodes
-                        )
-                        self.logger.record(
-                            "self_play/episodes", self.multi_player_episodes
-                        )
+                        avg_exp = self.total_experiences_collected / self.multi_player_episodes
+                        self.logger.record("self_play/episodes", self.multi_player_episodes)
                         self.logger.record(
                             "self_play/total_experiences",
                             self.total_experiences_collected,
                         )
                         self.logger.record("self_play/avg_exp_per_episode", avg_exp)
-                        self.logger.record(
-                            "self_play/model_injected", float(self.model_injected)
-                        )
+                        self.logger.record("self_play/model_injected", float(self.model_injected))
 
         return True
 
     def _on_training_end(self) -> None:
         """Called at the end of training. Print summary."""
-        if self.verbose >= 1:
-            print("\n" + "=" * 50)
-            print("Self-Play Training Summary:")
-            print(f"Model injection successful: {self.model_injected}")
-            print(f"Multi-player episodes completed: {self.multi_player_episodes}")
-            print(f"Total experiences collected: {self.total_experiences_collected}")
-            if self.multi_player_episodes > 0:
-                avg_exp = self.total_experiences_collected / self.multi_player_episodes
-                print(f"Average experiences per episode: {avg_exp:.1f}")
-                print(
-                    f"Training data multiplier: ~{avg_exp / 10:.1f}x compared to single-player"
-                )
-            print("=" * 50 + "\n")
+        # Self-play training summary available in class attributes

@@ -1,227 +1,213 @@
-"""PPO agent wrapper for stable-baselines3 models."""
+"""PPO agent for fixed 1,365-action space Big Two."""
 
-import os
 import numpy as np
-from typing import Optional, Any, Dict, Tuple, List
-from stable_baselines3 import PPO
+from typing import Optional, Any
+from pathlib import Path
+
 from .base_agent import BaseAgent
-from .model_metadata import ModelMetadata
-from ..core.observation_builder import ObservationConfig
+
+try:
+    from stable_baselines3 import PPO
+    from stable_baselines3.common.policies import ActorCriticPolicy
+
+    SB3_AVAILABLE = True
+except ImportError:
+    # Explicitly annotate to avoid shadowing type checker errors
+    PPO: Any | None = None
+    ActorCriticPolicy: Any | None = None
+    SB3_AVAILABLE = False
 
 
 class PPOAgent(BaseAgent):
-    """PPO agent wrapper for trained models."""
+    """PPO agent for Big Two with fixed 1,365-action space.
 
-    def __init__(
-        self,
-        model_path: Optional[str] = None,
-        name: str = "PPO",
-        observation_config: Optional[Any] = None,
-    ) -> None:
+    This agent uses trained PPO models from stable-baselines3 to play Big Two.
+    Requires models trained specifically for the 1,365-action space.
+    """
+
+    def __init__(self, model_path: str, name: str = "PPOAgent", deterministic: bool = True):
+        """Initialize PPO agent with trained model.
+
+        Args:
+            model_path: Path to trained PPO model (.zip file)
+            name: Agent name for identification
+            deterministic: Whether to use deterministic policy (exploitation)
+        """
         super().__init__(name)
-        self.model_path = model_path  # Store for serialization
 
-        # Observation configs
-        self.model_obs_config: Optional[ObservationConfig] = None
-        # Environment/runtime observation config (may be set later via set_env_reference)
-        self.env_obs_config: Optional[ObservationConfig] = None
-        if isinstance(observation_config, ObservationConfig):
-            self.env_obs_config = observation_config
+        if not SB3_AVAILABLE:
+            raise ImportError("stable-baselines3 is required for PPOAgent. Install with: pip install stable-baselines3")
 
-        if model_path:
-            self.model = PPO.load(model_path)
+        self.model_path = Path(model_path)
+        self.deterministic = deterministic
+        # Annotate as Any to satisfy type checker when SB3 not installed
+        self.model: Any = None
 
-        self.deterministic = True
+        # Load model
+        self._load_model()
 
-        # Target size expected by the loaded policy
-        self.expected_obs_size = int(self.model.policy.observation_space.shape[0])
+    def _load_model(self) -> None:
+        """Load the PPO model from disk."""
+        if not self.model_path.exists():
+            raise FileNotFoundError(f"Model not found at {self.model_path}")
 
-        # Prepare feature mapping if we already know the env config
-        self._feature_spans_env: Dict[str, Tuple[int, int]] = {}
-        self._feature_spans_model: Dict[str, Tuple[int, int]] = {}
-        self._feature_names_order = [
-            "hand",
-            "last_play",
-            "hand_sizes",
-            "played_cards",
-            "remaining_deck",
-            "cards_by_player",
-            "last_play_exists",
-            "game_phase",
-            "turn_position",
-            "trick_history",
-            "pass_history",
-            "play_patterns",
-            "power_cards_remaining",
-            "hand_type_capabilities",
-        ]
-        self._mapping_ready = False
+        try:
+            self.model = PPO.load(self.model_path)
+            print(f"✓ Loaded PPO model from {self.model_path}")
 
-        # Try to load the model's observation configuration from metadata.json
-        self._try_load_model_obs_config()
-        if self.env_obs_config is not None and self.model_obs_config is not None:
-            self._prepare_feature_mapping()
+            # Verify action space
+            expected_action_space = 1365
+            if hasattr(self.model, "action_space"):
+                if self.model.action_space.n != expected_action_space:
+                    print(
+                        f"⚠️  Warning: Model action space is {self.model.action_space.n}, "
+                        f"expected {expected_action_space}"
+                    )
 
-    def get_action(
-        self, observation: np.ndarray, action_mask: Optional[np.ndarray] = None
-    ) -> int:
-        """Get action from PPO model."""
-        # Convert observation to the model's expected feature space if needed
-        observation = self._convert_observation(observation)
+        except Exception as e:
+            raise RuntimeError(f"Failed to load PPO model: {e}")
 
-        # Get model prediction
-        action, _ = self.model.predict(observation, deterministic=self.deterministic)
+    def get_action(self, observation: np.ndarray, action_mask: Optional[np.ndarray] = None) -> int:
+        """Get action from PPO policy with action masking.
 
-        # Apply action masking manually if the predicted action is invalid
+        Args:
+            observation: Game observation vector (168 features)
+            action_mask: 1365-dim boolean mask for legal actions
+
+        Returns:
+            Action ID from 0-1364
+        """
+        if self.model is None:
+            raise RuntimeError("Model not loaded")
+
+        # Apply action mask if provided
         if action_mask is not None:
-            if not action_mask[action]:
-                # Find a valid action from the mask
-                legal_actions = np.where(action_mask)[0]
-                if len(legal_actions) > 0:
-                    action = legal_actions[0]  # Take first legal action as fallback
-                else:
-                    action = 0  # Ultimate fallback
+            # Create masked action space
+            legal_actions = np.where(action_mask)[0]
+            if len(legal_actions) == 0:
+                # No legal actions - shouldn't happen, but return 0 as fallback
+                print("Warning: No legal actions available, returning action 0")
+                return 0
 
-        return int(action)
+            # Get action probabilities from policy
+            try:
+                # Use the policy to get action probabilities
+                obs_tensor = self.model.policy.obs_to_tensor(observation.reshape(1, -1))[0]
+
+                with self.model.policy.set_training_mode(False):
+                    distribution = self.model.policy.get_distribution(obs_tensor)
+
+                    if self.deterministic:
+                        # Get the most likely action among legal actions
+                        action_logits = distribution.distribution.logits.detach().cpu().numpy()[0]
+
+                        # Mask out illegal actions by setting their logits to -inf
+                        masked_logits = np.full(1365, -np.inf)
+                        masked_logits[legal_actions] = action_logits[legal_actions]
+
+                        # Select action with highest masked logit
+                        action = int(np.argmax(masked_logits))
+                    else:
+                        # Sample from masked distribution
+                        action_probs = distribution.distribution.probs.detach().cpu().numpy()[0]
+
+                        # Create masked probability distribution
+                        masked_probs = np.zeros(1365)
+                        masked_probs[legal_actions] = action_probs[legal_actions]
+
+                        # Renormalize
+                        if np.sum(masked_probs) > 0:
+                            masked_probs = masked_probs / np.sum(masked_probs)
+                            action = int(np.random.choice(1365, p=masked_probs))
+                        else:
+                            # Fallback to uniform random among legal actions
+                            action = int(np.random.choice(legal_actions))
+
+                return action
+
+            except Exception as e:
+                print(f"Warning: PPO policy evaluation failed ({e}), falling back to random legal action")
+                return int(np.random.choice(legal_actions))
+
+        else:
+            # No action mask - use policy directly (may select illegal actions)
+            action, _ = self.model.predict(observation, deterministic=self.deterministic)
+            return int(action)
 
     def reset(self) -> None:
-        """Nothing to reset for PPO agent (stateless)."""
+        """Reset agent state.
+
+        PPO agent has no internal state to reset.
+        """
         pass
 
-    def _convert_observation(self, observation: np.ndarray) -> np.ndarray:
-        """Convert env observation vector to the model's expected observation space.
+    def get_action_distribution(self, observation: np.ndarray, action_mask: Optional[np.ndarray] = None) -> np.ndarray:
+        """Get action probability distribution from PPO policy.
 
-        If we have both the model's ObservationConfig and the environment's
-        ObservationConfig, perform feature-aware mapping: drop extra features,
-        and zero-pad missing ones in the correct order. Otherwise, fall back to
-        generic pad/truncate to the model's expected length.
+        Args:
+            observation: Game observation vector
+            action_mask: Legal action mask
+
+        Returns:
+            Probability distribution over actions
         """
-        # Fast path: already the correct size
-        if observation.shape[0] == self.expected_obs_size:
-            return observation
+        if self.model is None:
+            raise RuntimeError("Model not loaded")
 
-        if self._mapping_ready:
-            # Build output by concatenating per-feature segments in the model's order
-            segments: List[np.ndarray] = []
-            for feature_name in self._feature_names_order:
-                model_span = self._feature_spans_model.get(feature_name)
-                if model_span is None or model_span[1] - model_span[0] == 0:
-                    # Feature not used by model; skip
-                    continue
+        try:
+            # Get policy distribution
+            obs_tensor = self.model.policy.obs_to_tensor(observation.reshape(1, -1))[0]
 
-                target_size = model_span[1] - model_span[0]
-                env_span = self._feature_spans_env.get(feature_name)
+            with self.model.policy.set_training_mode(False):
+                distribution = self.model.policy.get_distribution(obs_tensor)
+                action_probs = distribution.distribution.probs.detach().cpu().numpy()[0]
 
-                if env_span is None or env_span[1] - env_span[0] == 0:
-                    # Feature not present in env obs: zero-fill
-                    segments.append(np.zeros(target_size, dtype=np.float32))
-                else:
-                    src = observation[env_span[0] : env_span[1]]
-                    # Match sizes conservatively
-                    if src.shape[0] == target_size:
-                        segments.append(src)
-                    elif src.shape[0] > target_size:
-                        segments.append(src[:target_size])
+            # Apply action mask if provided
+            if action_mask is not None:
+                legal_actions = np.where(action_mask)[0]
+                masked_probs = np.zeros(1365)
+
+                if len(legal_actions) > 0:
+                    masked_probs[legal_actions] = action_probs[legal_actions]
+
+                    # Renormalize
+                    if np.sum(masked_probs) > 0:
+                        masked_probs = masked_probs / np.sum(masked_probs)
                     else:
-                        padded = np.zeros(target_size, dtype=np.float32)
-                        padded[: src.shape[0]] = src
-                        segments.append(padded)
+                        # Uniform over legal actions as fallback
+                        masked_probs[legal_actions] = 1.0 / len(legal_actions)
 
-            if segments:
-                out = np.concatenate(segments)
-                # As a safeguard, adjust to exact expected length
-                if out.shape[0] != self.expected_obs_size:
-                    if out.shape[0] > self.expected_obs_size:
-                        out = out[: self.expected_obs_size]
-                    else:
-                        padded = np.zeros(self.expected_obs_size, dtype=np.float32)
-                        padded[: out.shape[0]] = out
-                        out = padded
-                return out
+                return masked_probs
 
-        # Fallback: generic pad/truncate
-        if observation.shape[0] > self.expected_obs_size:
-            return observation[: self.expected_obs_size]
-        else:
-            padded = np.zeros(self.expected_obs_size, dtype=np.float32)
-            padded[: observation.shape[0]] = observation
-            return padded
+            return action_probs
 
-    def set_deterministic(self, deterministic: bool) -> None:
-        """Set whether to use deterministic policy."""
-        self.deterministic = deterministic
+        except Exception as e:
+            print(f"Warning: Failed to get action distribution ({e})")
 
-    # --- Environment wiring helpers ---
-    def set_env_reference(self, env: Any) -> None:
-        """Provide environment reference so we can read its observation config.
+            # Fallback to uniform distribution
+            if action_mask is not None:
+                legal_actions = np.where(action_mask)[0]
+                uniform_probs = np.zeros(1365)
+                if len(legal_actions) > 0:
+                    uniform_probs[legal_actions] = 1.0 / len(legal_actions)
+                return uniform_probs
+            else:
+                return np.ones(1365) / 1365
 
-        Called by evaluation/tournament code when available.
-        """
-        env_config = getattr(env, "obs_config", None)
-        if isinstance(env_config, ObservationConfig):
-            self.env_obs_config = env_config
-            if self.model_obs_config is not None:
-                self._prepare_feature_mapping()
 
-    # --- Internal helpers ---
-    def _try_load_model_obs_config(self) -> None:
-        """Load the model's ObservationConfig from metadata.json if available."""
-        model_dir = None
-        if self.model_path is not None:
-            model_dir = os.path.dirname(self.model_path)
-        # If created from a PPO model object, there is no path; skip
-        if model_dir and os.path.isdir(model_dir):
-            config = ModelMetadata.load_observation_config(model_dir)
-            if isinstance(config, ObservationConfig):
-                self.model_obs_config = config
-                # Ensure expected size aligns with policy's observation space
-                # but trust the policy space for final length
-                # Prepare mapping if env config is already known
-                if self.env_obs_config is not None:
-                    self._prepare_feature_mapping()
+# Convenience function for creating PPO agents
+def load_ppo_agent(model_path: str, name: Optional[str] = None, deterministic: bool = True) -> PPOAgent:
+    """Load a trained PPO agent from file.
 
-    def _compute_feature_spans(
-        self, config: ObservationConfig
-    ) -> Dict[str, Tuple[int, int]]:
-        """Return feature name -> (start, end) spans for a given config.
+    Args:
+        model_path: Path to trained model (.zip file)
+        name: Agent name (defaults to filename)
+        deterministic: Whether to use deterministic policy
 
-        The order must mirror ObservationVectorizer.vectorize.
-        """
-        sizes: Dict[str, int] = {
-            "hand": 52 if config.include_hand else 0,
-            "last_play": 52 if config.include_last_play else 0,
-            "hand_sizes": 4 if config.include_hand_sizes else 0,
-            "played_cards": 52 if config.include_played_cards else 0,
-            "remaining_deck": 52 if config.include_remaining_deck else 0,
-            "cards_by_player": 208 if config.include_cards_by_player else 0,
-            "last_play_exists": 1 if config.include_last_play_exists else 0,
-            "game_phase": 3 if config.include_game_phase else 0,
-            "turn_position": 4 if config.include_turn_position else 0,
-            "trick_history": 12 if config.include_trick_history else 0,
-            "pass_history": 4 if config.include_pass_history else 0,
-            "play_patterns": 16 if config.include_play_patterns else 0,
-            "power_cards_remaining": 5 if config.include_power_cards_remaining else 0,
-            "hand_type_capabilities": 20
-            if config.include_hand_type_capabilities
-            else 0,
-        }
+    Returns:
+        Loaded PPOAgent instance
+    """
+    if name is None:
+        name = Path(model_path).stem
 
-        spans: Dict[str, Tuple[int, int]] = {}
-        cursor = 0
-        for name in self._feature_names_order:
-            length = sizes[name]
-            spans[name] = (cursor, cursor + length)
-            cursor += length
-        return spans
-
-    def _prepare_feature_mapping(self) -> None:
-        """Precompute feature spans for env and model to enable fast conversion."""
-        if self.env_obs_config is None or self.model_obs_config is None:
-            self._mapping_ready = False
-            return
-        # Ensure internal sizes are up to date
-        self.env_obs_config.__post_init__()
-        self.model_obs_config.__post_init__()
-        self._feature_spans_env = self._compute_feature_spans(self.env_obs_config)
-        self._feature_spans_model = self._compute_feature_spans(self.model_obs_config)
-        self._mapping_ready = True
+    return PPOAgent(model_path, name, deterministic)

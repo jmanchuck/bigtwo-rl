@@ -43,9 +43,7 @@ class TestThreeDiamondsStartingRule:
                 non_pass_moves = [move for move in legal_moves if np.any(move)]
 
                 if player == starting_player:
-                    assert len(non_pass_moves) > 0, (
-                        f"Starting player {player} should have legal moves (seed {seed})"
-                    )
+                    assert len(non_pass_moves) > 0, f"Starting player {player} should have legal moves (seed {seed})"
                 else:
                     assert len(non_pass_moves) == 0, (
                         f"Non-starting player {player} should have no legal moves (seed {seed})"
@@ -65,9 +63,7 @@ class TestThreeDiamondsStartingRule:
             # Check each legal move
             for i, move in enumerate(legal_moves):
                 if np.any(move):  # Skip passes (though there shouldn't be any at start)
-                    assert move[three_of_diamonds], (
-                        f"Starting move {i} does not contain 3♦ (seed {seed})"
-                    )
+                    assert move[three_of_diamonds], f"Starting move {i} does not contain 3♦ (seed {seed})"
 
     def test_starting_move_types_with_three_diamonds(self):
         """Test different types of starting moves (singles, pairs, etc.) all contain 3♦."""
@@ -104,17 +100,10 @@ class TestThreeDiamondsStartingRule:
             # All move types should contain 3♦
             all_moves = singles + pairs + trips + five_cards
             for i, move in enumerate(all_moves):
-                assert move[three_of_diamonds], (
-                    f"Move type with {np.sum(move)} cards does not contain 3♦ (seed {seed})"
-                )
+                assert move[three_of_diamonds], f"Move type with {np.sum(move)} cards does not contain 3♦ (seed {seed})"
 
             # If we found different move types, we've tested them
-            if (
-                len(singles) > 0
-                or len(pairs) > 0
-                or len(trips) > 0
-                or len(five_cards) > 0
-            ):
+            if len(singles) > 0 or len(pairs) > 0 or len(trips) > 0 or len(five_cards) > 0:
                 break
 
     def test_no_pass_allowed_at_game_start(self):
@@ -128,9 +117,7 @@ class TestThreeDiamondsStartingRule:
             legal_moves = game.legal_moves(starting_player)
             pass_moves = [move for move in legal_moves if not np.any(move)]
 
-            assert len(pass_moves) == 0, (
-                f"Passing should not be allowed at game start (seed {seed})"
-            )
+            assert len(pass_moves) == 0, f"Passing should not be allowed at game start (seed {seed})"
 
     def test_first_move_execution_contains_three_diamonds(self):
         """Test that executing the first move actually plays 3♦."""
@@ -150,9 +137,7 @@ class TestThreeDiamondsStartingRule:
             # Verify 3♦ was played
             assert game.last_play is not None, "No last play recorded after first move"
             played_cards = np.where(game.last_play[0])[0]
-            assert three_of_diamonds in played_cards, (
-                f"First move {played_cards} does not contain 3♦ (seed {seed})"
-            )
+            assert three_of_diamonds in played_cards, f"First move {played_cards} does not contain 3♦ (seed {seed})"
 
     def test_game_start_detection(self):
         """Test that game correctly detects start vs mid-game states."""
@@ -171,9 +156,7 @@ class TestThreeDiamondsStartingRule:
         legal_moves = game.legal_moves(current_player)
 
         # Should now have moves that don't necessarily contain 3♦
-        moves_without_3d = [
-            move for move in legal_moves if np.any(move) and not move[0]
-        ]
+        moves_without_3d = [move for move in legal_moves if np.any(move) and not move[0]]
         # Note: might be 0 if player doesn't have cards higher than 3♦
 
 
@@ -204,9 +187,7 @@ class TestThreePassesRule:
                     pass_idx = i
                     break
 
-            assert pass_idx is not None, (
-                f"No pass option available for player {current_player}"
-            )
+            assert pass_idx is not None, f"No pass option available for player {current_player}"
 
             obs, rewards, done, info = game.step(pass_idx)
 
@@ -242,9 +223,7 @@ class TestThreePassesRule:
             obs, rewards, done, info = game.step(pass_idx)
 
         if not game.done:
-            assert game.last_play is None, (
-                "last_play should reset to None after 3 passes"
-            )
+            assert game.last_play is None, "last_play should reset to None after 3 passes"
 
     def test_new_trick_allows_any_cards(self):
         """Test that after 3 passes, player can play any cards (new trick)."""
@@ -275,9 +254,7 @@ class TestThreePassesRule:
 
             current_player = game.current_player
             legal_moves = game.legal_moves(current_player)
-            pass_idx = next(
-                (i for i, move in enumerate(legal_moves) if not np.any(move)), None
-            )
+            pass_idx = next((i for i, move in enumerate(legal_moves) if not np.any(move)), None)
 
             if pass_idx is not None:
                 obs, rewards, done, info = game.step(pass_idx)
@@ -304,9 +281,7 @@ class TestThreePassesRule:
                 if low_card_idx is not None:
                     # This should work because it's a new trick
                     obs, rewards, done, info = game.step(low_card_idx)
-                    assert game.last_play is not None, (
-                        "Should be able to play lower card after 3 passes (new trick)"
-                    )
+                    assert game.last_play is not None, "Should be able to play lower card after 3 passes (new trick)"
 
     def test_passes_reset_after_play(self):
         """Test that passes_in_row resets to 0 when someone plays."""
@@ -339,9 +314,7 @@ class TestThreePassesRule:
 
         if play_idx is not None:
             obs, rewards, done, info = game.step(play_idx)
-            assert game.passes_in_row == 0, (
-                "passes_in_row should reset to 0 after someone plays"
-            )
+            assert game.passes_in_row == 0, "passes_in_row should reset to 0 after someone plays"
 
     def test_no_infinite_passes_without_reset(self):
         """Test that we can't have more than 3 consecutive passes without trick reset."""
@@ -395,9 +368,7 @@ class TestThreePassesRule:
 
         if not game.done:
             # Should have cycled through 3 different players
-            assert len(set(players_who_passed)) == 3, (
-                f"Should have 3 different players pass, got {players_who_passed}"
-            )
+            assert len(set(players_who_passed)) == 3, f"Should have 3 different players pass, got {players_who_passed}"
 
             # After 3 passes, trick should be reset and it should be next player's turn
             # The exact player depends on the game logic, but it should be reasonable

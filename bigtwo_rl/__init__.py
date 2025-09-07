@@ -3,42 +3,41 @@
 A reinforcement learning library for training and evaluating AI agents that play Big Two.
 
 Main components:
-- bigtwo_rl.core: Game environment and RL wrapper
-- bigtwo_rl.agents: Various agent implementations
+- bigtwo_rl.core: Game environment and RL wrapper (1,365-action space)
+- bigtwo_rl.agents: Agent implementations (PPO, Random, Greedy baselines)
 - bigtwo_rl.training: Training infrastructure with configurable rewards/hyperparams
 - bigtwo_rl.evaluation: Tournament system and evaluation tools
 """
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"  # Clean single-system version
 
-# Main API exports
-from .core import BigTwoRLWrapper, ToyBigTwoFullRules
-from .core.observation_builder import (
-    ObservationBuilder,
-    ObservationConfig,
-    minimal_observation,
-    standard_observation,
-    memory_enhanced_observation,
-    strategic_observation,
-)
-from .agents import BaseAgent, RandomAgent, GreedyAgent, PPOAgent
+# Core components
+from .core.bigtwo_wrapper import BigTwoWrapper
 
-# Training API exports - import these explicitly for training
-# from bigtwo_rl.training import Trainer
-# from bigtwo_rl.training.rewards import DefaultReward, SparseReward, etc.
-# from bigtwo_rl.training.hyperparams import DefaultConfig, AggressiveConfig, etc.
+# from .agents.ppo_agent import PPOAgent  # Temporarily disabled
+from .agents.random_agent import RandomAgent
+# from .agents.greedy_agent import GreedyAgent  # Temporarily disabled
+# from .training.trainer import Trainer  # Temporarily disabled to avoid circular import
+# from .evaluation.evaluator import Evaluator  # Temporarily disabled
+# from .evaluation.tournament import Tournament  # Temporarily disabled
+
+# Always available components
+from .agents.base_agent import BaseAgent
+from .core.bigtwo import ToyBigTwoFullRules
+
+# Backward compatibility aliases
+BigTwoRLWrapper = BigTwoWrapper  # For existing code
 
 __all__ = [
-    "BigTwoRLWrapper",
-    "ToyBigTwoFullRules",
-    "ObservationBuilder",
-    "ObservationConfig",
-    "minimal_observation",
-    "standard_observation",
-    "memory_enhanced_observation",
-    "strategic_observation",
+    # Core agents and components
     "BaseAgent",
+    "BigTwoWrapper",
+    "BigTwoRLWrapper",  # Backward compatibility
+    # "GreedyAgent",  # Temporarily disabled
+    # "PPOAgent",  # Temporarily disabled
     "RandomAgent",
-    "GreedyAgent",
-    "PPOAgent",
+    "ToyBigTwoFullRules",
+    # "Trainer",  # Temporarily disabled
+    # "Evaluator",  # Temporarily disabled
+    # "Tournament",  # Temporarily disabled
 ]

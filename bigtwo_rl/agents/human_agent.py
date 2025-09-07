@@ -15,23 +15,17 @@ class HumanAgent(BaseAgent):
         self.env = None  # Will be set via set_env_reference()
         self.move_history = []  # Track recent moves for display
 
-    def get_action(
-        self, observation: np.ndarray, action_mask: Optional[np.ndarray] = None
-    ) -> int:
+    def get_action(self, observation: np.ndarray, action_mask: Optional[np.ndarray] = None) -> int:
         """Get action from human player via console interface."""
         if self.env is None:
-            raise RuntimeError(
-                "HumanAgent requires env reference via set_env_reference()"
-            )
+            raise RuntimeError("HumanAgent requires env reference via set_env_reference()")
 
         # Display current game state
         self._display_game_state()
 
         # Get legal moves from action mask
         if action_mask is None:
-            raise RuntimeError(
-                "HumanAgent requires action_mask to determine legal moves"
-            )
+            raise RuntimeError("HumanAgent requires action_mask to determine legal moves")
 
         legal_action_indices = np.where(action_mask)[0]
 
@@ -47,9 +41,7 @@ class HumanAgent(BaseAgent):
                 # Double-check that this move is actually legal
                 if isinstance(move, np.ndarray):
                     if np.sum(move) == 0:  # Pass move
-                        is_legal = (
-                            self.env.env.last_play is not None
-                        )  # Can only pass if there's a last play
+                        is_legal = self.env.env.last_play is not None  # Can only pass if there's a last play
                     else:
                         is_legal = self.env.env._beats(move)
                 else:
@@ -62,9 +54,7 @@ class HumanAgent(BaseAgent):
                 if is_legal:
                     legal_moves.append((action_idx, move))
                 else:
-                    print(
-                        f"🚨 BUG DETECTED: Action {action_idx} appears in mask but is not legal!"
-                    )
+                    print(f"🚨 BUG DETECTED: Action {action_idx} appears in mask but is not legal!")
                     if isinstance(move, np.ndarray):
                         move_cards = hand_array_to_strings(move)
                         print(f"   Illegal move: {' '.join(move_cards)}")
@@ -127,9 +117,7 @@ class HumanAgent(BaseAgent):
             else:
                 type_display = f"{len(last_play_indices)}-card"
 
-            print(
-                f"Last play: {' '.join(last_cards)} ({type_display}) by {last_player_name}"
-            )
+            print(f"Last play: {' '.join(last_cards)} ({type_display}) by {last_player_name}")
         else:
             print("Last play: None (start new trick)")
 
@@ -222,9 +210,7 @@ class HumanAgent(BaseAgent):
         """Get user's move choice with input validation."""
         while True:
             try:
-                user_input = input(
-                    f"\nEnter move number (0-{len(legal_moves) - 1}): "
-                ).strip()
+                user_input = input(f"\nEnter move number (0-{len(legal_moves) - 1}): ").strip()
 
                 # Handle special commands
                 if user_input.lower() in ["quit", "exit", "q"]:
@@ -238,9 +224,7 @@ class HumanAgent(BaseAgent):
                         action_idx, move = legal_moves[choice]
 
                         # Confirm the move
-                        if move is None or (
-                            isinstance(move, np.ndarray) and np.sum(move) == 0
-                        ):
+                        if move is None or (isinstance(move, np.ndarray) and np.sum(move) == 0):
                             print("✅ You chose: PASS")
                         else:
                             if isinstance(move, np.ndarray):
@@ -251,9 +235,7 @@ class HumanAgent(BaseAgent):
 
                         return action_idx
                     else:
-                        print(
-                            f"❌ Invalid choice. Please enter a number between 0 and {len(legal_moves) - 1}"
-                        )
+                        print(f"❌ Invalid choice. Please enter a number between 0 and {len(legal_moves) - 1}")
 
                 except ValueError:
                     print("❌ Please enter a valid number (or 'quit' to exit)")
