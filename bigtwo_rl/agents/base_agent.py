@@ -14,9 +14,7 @@ class BaseAgent(ABC):
         self.games_played = 0
 
     @abstractmethod
-    def get_action(
-        self, observation: np.ndarray, action_mask: Optional[np.ndarray] = None
-    ) -> int:
+    def get_action(self, observation: np.ndarray, action_mask: Optional[np.ndarray] = None) -> int:
         """
         Get action from agent given observation.
 

@@ -1,28 +1,18 @@
 """Training infrastructure for Big Two agents."""
 
-from .callbacks import BigTwoMetricsCallback
+# Import reward functions first to avoid circular imports
+from .rewards import DefaultReward, SparseReward, ZeroSumReward, ProgressiveReward, StrategicReward
 
-# Import hyperparameter configurations
-from .hyperparams import (
-    AggressiveConfig,
-    ConservativeConfig,
-    DefaultConfig,
-    FastExperimentalConfig,
-    ReferenceExactConfig,
-)
-from .multi_player_buffer_enhanced import MultiPlayerRolloutBuffer
-from .multi_player_ppo import MultiPlayerPPO
-from .trainer import Trainer
+# Import trainer after rewards
+from .trainer import Trainer, quick_train
 
 __all__ = [
-    "AggressiveConfig",
-    "BigTwoMetricsCallback",
-    "ConservativeConfig",
-    # Hyperparameter configurations
-    "DefaultConfig",
-    "FastExperimentalConfig",
-    "MultiPlayerPPO",
-    "MultiPlayerRolloutBuffer",
-    "ReferenceExactConfig",
     "Trainer",
+    "quick_train",
+    # Reward functions
+    "DefaultReward",
+    "SparseReward",
+    "ZeroSumReward",
+    "ProgressiveReward",
+    "StrategicReward",
 ]

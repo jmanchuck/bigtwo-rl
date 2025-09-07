@@ -56,17 +56,13 @@ class ZeroSumReward(BaseReward):
 
         if player_idx == winner_player:
             # Winner gets sum of all other players' remaining cards
-            total_other_cards = sum(
-                all_cards_left[i] for i in range(4) if i != winner_player
-            )
+            total_other_cards = sum(all_cards_left[i] for i in range(4) if i != winner_player)
             return total_other_cards / self.normalization_factor
         else:
             # Losers get negative penalty equal to their remaining cards
             return -cards_left / self.normalization_factor
 
-    def episode_bonus(
-        self, games_won: int, total_games: int, avg_cards_left: float
-    ) -> float:
+    def episode_bonus(self, games_won: int, total_games: int, avg_cards_left: float) -> float:
         """No episode bonus - keep it simple like the reference implementation."""
         return 0.0
 

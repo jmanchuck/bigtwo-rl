@@ -22,16 +22,16 @@ from .callbacks import MultiPlayerGAECallback
 
 class MultiPlayerPPO(PPO):
     """PPO enhanced for multi-player turn-based games.
-    
+
     This class extends stable-baselines3 PPO with:
     - Automatic use of MultiPlayerRolloutBuffer for delayed reward assignment
     - Integration of MultiPlayerGAECallback for proper GAE calculation
     - Reference-compatible training loop that understands turn-based structure
-    
+
     The API remains identical to standard PPO, but with multi-player enhancements
     active by default.
     """
-    
+
     def __init__(
         self,
         policy: Union[str, Type[BasePolicy]],
@@ -62,21 +62,21 @@ class MultiPlayerPPO(PPO):
         _init_setup_model: bool = True,
     ):
         """Initialize MultiPlayerPPO.
-        
+
         Args:
             All other args: Same as stable-baselines3 PPO
         """
         if rollout_buffer_class is None:
             rollout_buffer_class = MultiPlayerRolloutBuffer
-        
+
         # Ensure buffer kwargs include required parameters
         if rollout_buffer_kwargs is None:
             rollout_buffer_kwargs = {}
-        
+
         # Set default batch_size if None (required for stable-baselines3 compatibility)
         if batch_size is None:
             batch_size = 64
-    
+
         # Initialize parent PPO with our enhanced buffer
         super().__init__(
             policy=policy,
@@ -106,15 +106,15 @@ class MultiPlayerPPO(PPO):
             device=device,
             _init_setup_model=_init_setup_model,
         )
-        
+
         # Create and store the multi-player GAE callback
         self.multi_player_callback = MultiPlayerGAECallback(verbose=verbose)
         # Set the callback's model reference
         self.multi_player_callback.model = self
-    
+
     def train(self) -> None:
         """Enhanced training step with multi-player GAE recalculation.
-        
+
         This method:
         1. Triggers multi-player GAE recalculation (if enabled)
         2. Runs standard PPO training
@@ -123,31 +123,30 @@ class MultiPlayerPPO(PPO):
         # Trigger multi-player GAE recalculation before training
         if self.multi_player_callback:
             self.multi_player_callback._on_rollout_end()
-            
+
             # Log enhanced statistics
-            if hasattr(self.rollout_buffer, 'get_statistics'):
+            if hasattr(self.rollout_buffer, "get_statistics"):
                 buffer_stats = self.rollout_buffer.get_statistics()
                 # Buffer statistics available
-        
+
         # Run standard PPO training
         super().train()
-        
+
         # Log additional multi-player specific metrics
         if self.multi_player_callback:
             callback_stats = self.multi_player_callback.get_statistics()
-            
+
             # Record to tensorboard if available
-            if hasattr(self, '_logger') and self._logger is not None:
-                self.logger.record("multiPlayer/gae_recalculations", 
-                                  callback_stats['gae_recalculations'])
-                
-                if hasattr(self.rollout_buffer, 'get_statistics'):
+            if hasattr(self, "_logger") and self._logger is not None:
+                self.logger.record("multiPlayer/gae_recalculations", callback_stats["gae_recalculations"])
+
+                if hasattr(self.rollout_buffer, "get_statistics"):
                     buffer_stats = self.rollout_buffer.get_statistics()
-                    self.logger.record("multiPlayer/games_completed", 
-                                      buffer_stats['games_completed'])
-                    self.logger.record("multiPlayer/immediate_rewards_assigned",
-                                      buffer_stats['immediate_rewards_assigned'])
-    
+                    self.logger.record("multiPlayer/games_completed", buffer_stats["games_completed"])
+                    self.logger.record(
+                        "multiPlayer/immediate_rewards_assigned", buffer_stats["immediate_rewards_assigned"]
+                    )
+
     def collect_rollouts(
         self,
         env,
@@ -156,7 +155,7 @@ class MultiPlayerPPO(PPO):
         n_rollout_steps: int,
     ) -> bool:
         """Enhanced rollout collection with explicit player tracking.
-        
+
         This method extracts current_player from environment info and passes it
         to the buffer for proper player tracking, matching reference mb_pGos behavior.
         """
@@ -166,7 +165,7 @@ class MultiPlayerPPO(PPO):
 
         n_steps = 0
         rollout_buffer.reset()
-        
+
         callback.on_rollout_start()
 
         while n_steps < n_rollout_steps:
@@ -211,7 +210,7 @@ class MultiPlayerPPO(PPO):
                     terminal_obs = [info.get("terminal_observation") for info in infos]
                 else:
                     terminal_obs = None
-                
+
                 # Extract current_player from info for proper tracking
                 current_players = []
                 for info in infos:
@@ -220,7 +219,7 @@ class MultiPlayerPPO(PPO):
                     else:
                         # Fallback to None - buffer will handle inference
                         current_players.append(None)
-                
+
                 # Convert to numpy array if all are valid
                 if all(cp is not None for cp in current_players):
                     current_players = np.array(current_players, dtype=int)
@@ -258,31 +257,31 @@ class MultiPlayerPPO(PPO):
         callback.on_rollout_end()
 
         return True
-    
+
     def get_multi_player_statistics(self) -> Dict[str, Any]:
         """Get multi-player specific training statistics.
-        
+
         Returns:
             Dictionary with multi-player training metrics
         """
         stats = {}
-        
+
         # Get callback statistics
         if self.multi_player_callback:
             callback_stats = self.multi_player_callback.get_statistics()
             stats.update({f"callback_{k}": v for k, v in callback_stats.items()})
-        
+
         # Get buffer statistics
-        if hasattr(self.rollout_buffer, 'get_statistics'):
+        if hasattr(self.rollout_buffer, "get_statistics"):
             buffer_stats = self.rollout_buffer.get_statistics()
             stats.update({f"buffer_{k}": v for k, v in buffer_stats.items()})
-        
+
         return stats
-    
+
     def _setup_learn(
         self,
         total_timesteps: int,
-        callback = None,
+        callback=None,
         reset_num_timesteps: bool = True,
         tb_log_name: str = "MultiPlayerPPO",
         progress_bar: bool = False,
@@ -296,7 +295,7 @@ class MultiPlayerPPO(PPO):
             tb_log_name=tb_log_name,
             progress_bar=progress_bar,
         )
-    
+
     def save(self, path, exclude=None, include=None):
         """Save model with multi-player enhancement metadata."""
         # Exclude callback from serialization (contains non-serializable objects)
@@ -305,60 +304,71 @@ class MultiPlayerPPO(PPO):
         else:
             exclude = set(exclude)
         exclude.add("multi_player_callback")
-        
+
         # Save the model state
         super().save(path, exclude=exclude, include=include)
-        
+
         # Save additional metadata about multi-player enhancements
         import json
+
         metadata = {
-            'buffer_class': self.rollout_buffer.__class__.__name__,
-            'multi_player_statistics': self.get_multi_player_statistics(),
+            "buffer_class": self.rollout_buffer.__class__.__name__,
+            "multi_player_statistics": self.get_multi_player_statistics(),
             # Save critical hyperparameters that might get lost
-            'hyperparams': {
-                'batch_size': self.batch_size,
-                'n_steps': self.n_steps,
-                'n_epochs': self.n_epochs,
-                'learning_rate': self.learning_rate if isinstance(self.learning_rate, (int, float)) else str(self.learning_rate),
-                'gamma': self.gamma,
-                'gae_lambda': self.gae_lambda,
-            }
+            "hyperparams": {
+                "batch_size": self.batch_size,
+                "n_steps": self.n_steps,
+                "n_epochs": self.n_epochs,
+                "learning_rate": self.learning_rate
+                if isinstance(self.learning_rate, (int, float))
+                else str(self.learning_rate),
+                "gamma": self.gamma,
+                "gae_lambda": self.gae_lambda,
+            },
         }
-        
+
         metadata_path = f"{path}_metadata.json"
-        with open(metadata_path, 'w') as f:
+        with open(metadata_path, "w") as f:
             json.dump(metadata, f, indent=2)
-        
+
         # MultiPlayerPPO model and metadata saved
-    
+
     @classmethod
-    def load(cls, path, env=None, device="auto", custom_objects=None, print_system_info=False, 
-             force_reset=True, **kwargs):
+    def load(
+        cls, path, env=None, device="auto", custom_objects=None, print_system_info=False, force_reset=True, **kwargs
+    ):
         """Load MultiPlayerPPO model."""
         # Try to load metadata first to get hyperparameters
         metadata_path = f"{path}_metadata.json"
         saved_hyperparams = {}
         try:
             import json
-            with open(metadata_path, 'r') as f:
+
+            with open(metadata_path, "r") as f:
                 metadata = json.load(f)
-            saved_hyperparams = metadata.get('hyperparams', {})
+            saved_hyperparams = metadata.get("hyperparams", {})
             # MultiPlayerPPO metadata loaded
         except FileNotFoundError:
             # No metadata file found, will use defaults
             pass
-        
+
         # Override kwargs with saved hyperparameters if available
-        if 'batch_size' not in kwargs and 'batch_size' in saved_hyperparams:
-            kwargs['batch_size'] = saved_hyperparams['batch_size']
-        
+        if "batch_size" not in kwargs and "batch_size" in saved_hyperparams:
+            kwargs["batch_size"] = saved_hyperparams["batch_size"]
+
         # Load the base model
-        model = super().load(path, env=env, device=device, custom_objects=custom_objects,
-                           print_system_info=print_system_info, force_reset=force_reset, 
-                           **kwargs)
-        
+        model = super().load(
+            path,
+            env=env,
+            device=device,
+            custom_objects=custom_objects,
+            print_system_info=print_system_info,
+            force_reset=force_reset,
+            **kwargs,
+        )
+
         # Recreate the multi-player callback (was excluded from serialization)
         model.multi_player_callback = MultiPlayerGAECallback(verbose=0)
         model.multi_player_callback.model = model
-        
+
         return model

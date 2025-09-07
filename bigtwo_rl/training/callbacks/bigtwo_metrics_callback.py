@@ -62,11 +62,7 @@ class BigTwoMetricsCallback(BaseCallback):
             metric_lists = {}
             for info in infos:
                 # Each info corresponds to one sub-env; may or may not include metrics
-                sub_metrics = {
-                    k: v
-                    for k, v in info.items()
-                    if isinstance(k, str) and k.startswith("bigtwo/")
-                }
+                sub_metrics = {k: v for k, v in info.items() if isinstance(k, str) and k.startswith("bigtwo/")}
                 if not sub_metrics:
                     continue
                 for k, v in sub_metrics.items():
@@ -74,11 +70,7 @@ class BigTwoMetricsCallback(BaseCallback):
 
             if metric_lists:
                 # Compute mean across envs that reported this metric
-                aggregated = {
-                    k: (sum(vals) / len(vals))
-                    for k, vals in metric_lists.items()
-                    if len(vals) > 0
-                }
+                aggregated = {k: (sum(vals) / len(vals)) for k, vals in metric_lists.items() if len(vals) > 0}
                 # Robust win-rate recompute if counters present
                 gw = aggregated.get("bigtwo/games_won")
                 gp = aggregated.get("bigtwo/games_completed")

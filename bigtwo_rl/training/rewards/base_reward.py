@@ -30,9 +30,7 @@ class BaseReward(ABC):
         pass
 
     @abstractmethod
-    def episode_bonus(
-        self, games_won: int, total_games: int, avg_cards_left: float
-    ) -> float:
+    def episode_bonus(self, games_won: int, total_games: int, avg_cards_left: float) -> float:
         """
         Calculate bonus reward at episode end based on overall performance.
 

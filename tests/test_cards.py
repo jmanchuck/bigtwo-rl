@@ -34,9 +34,7 @@ def test_card_conversion():
 
         # Test reverse conversion
         back_to_idx = string_to_card(result)
-        assert back_to_idx == card_idx, (
-            f"Round trip failed: {card_idx} -> {result} -> {back_to_idx}"
-        )
+        assert back_to_idx == card_idx, f"Round trip failed: {card_idx} -> {result} -> {back_to_idx}"
 
     print("✓ Card conversion tests passed!")
 
@@ -95,9 +93,7 @@ def test_numpy_array_utilities():
     # Test card indices extraction
     indices = card_indices_from_array(hand_array)
     expected_indices = np.array([0, 4, 8, 40, 51])
-    assert np.array_equal(indices, expected_indices), (
-        f"Indices failed: {indices} != {expected_indices}"
-    )
+    assert np.array_equal(indices, expected_indices), f"Indices failed: {indices} != {expected_indices}"
 
     # Test creating array from indices
     new_array = array_from_card_indices([0, 4, 8])

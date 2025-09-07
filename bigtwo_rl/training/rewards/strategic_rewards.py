@@ -47,15 +47,14 @@ class StrategicReward(BaseReward):
         if player_idx == winner_player:
             base_win = 1.0
             # Bonus for potentially strategic wins (check if others have many cards)
-            if all_cards_left:
+            if all_cards_left is not None:
                 base_win += sum(all_cards_left) / 4.0  # Bonus for dominant wins
             return base_win
 
         # Strategic loss evaluation
         # 1. Position bonus: Reward good relative performance
-        sorted_indices = sorted(
-            range(len(all_cards_left)), key=lambda i: all_cards_left[i]
-        )
+        assert all_cards_left is not None
+        sorted_indices = sorted(range(len(all_cards_left)), key=lambda i: all_cards_left[i])
         player_rank = sorted_indices.index(player_idx)  # 0=best, 3=worst
         position_reward = self.position_bonus * (3 - player_rank) / 3  # 0.2 to 0 range
 
@@ -74,9 +73,7 @@ class StrategicReward(BaseReward):
 
         return max(-2.0, total_reward)  # Cap minimum penalty
 
-    def episode_bonus(
-        self, games_won: int, total_games: int, avg_cards_left: float
-    ) -> float:
+    def episode_bonus(self, games_won: int, total_games: int, avg_cards_left: float) -> float:
         """Bonus for consistent strategic performance across episode."""
         win_rate = games_won / total_games if total_games > 0 else 0
 
@@ -147,9 +144,7 @@ class ComplexMoveReward(BaseReward):
                 penalty = 0
             return self.base_reward_scale * penalty
 
-    def episode_bonus(
-        self, games_won: int, total_games: int, avg_cards_left: float
-    ) -> float:
+    def episode_bonus(self, games_won: int, total_games: int, avg_cards_left: float) -> float:
         """Small bonus for good episode performance (same as DefaultReward)."""
         win_rate = games_won / total_games if total_games > 0 else 0
         if win_rate > 0.6:

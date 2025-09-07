@@ -5,7 +5,7 @@ a fixed action space of exactly 1,365 actions and proper action masking.
 """
 
 import inspect
-from typing import Any
+from typing import Any, List
 
 import gymnasium as gym
 import numpy as np
@@ -13,11 +13,10 @@ from gymnasium import spaces
 
 from bigtwo_rl.training.rewards.base_reward import BaseReward
 
-from .action.calc import ActionMaskBuilder
-from .action_system import BigTwoActionSystem
+from .action import ActionMaskBuilder
 from .bigtwo import ToyBigTwoFullRules
 from .episode_manager import EpisodeManager
-from .observation_builder import ObservationConfig, ObservationVectorizer
+
 
 NUM_PLAYERS = 4
 
@@ -35,7 +34,7 @@ class BigTwoWrapper(gym.Env):
 
     def __init__(
         self,
-        observation_config: ObservationConfig,
+        # observation_config: ObservationConfig,
         reward_function: BaseReward,
         num_players: int = 4,
         games_per_episode: int = 10,
@@ -63,17 +62,17 @@ class BigTwoWrapper(gym.Env):
         self.track_move_history = track_move_history
 
         # Store config for lazy initialization (multiprocessing-safe)
-        self.obs_config = observation_config
-
         # Fixed action space (breaking change!)
         self.action_space = spaces.Discrete(1365)
-        self.action_system = BigTwoActionSystem()
 
-        self.action_masker = ActionMaskBuilder()
+        from .action import BitsetFiveCardEngine
+
+        five_engine = BitsetFiveCardEngine()
+        self.action_masker = ActionMaskBuilder(five_engine)
 
         # Initialize observation space immediately (needed for PPO model creation)
-        temp_vectorizer = ObservationVectorizer(observation_config)
-        self.observation_space = temp_vectorizer.gymnasium_space
+        # BasicObservationBuilder uses 168 features (52 + 52 + 64)
+        self.observation_space = spaces.Box(low=0, high=1, shape=(168,), dtype=np.float32)
 
         # Lazy initialization for game components (will be created in reset())
         self.game = None
@@ -83,7 +82,7 @@ class BigTwoWrapper(gym.Env):
         # True self-play experience tracking
         self.player_experiences = []  # List of experiences for each player
         self.current_obs_per_player = {}  # Store observations when they act
-        self._current_obs: np.ndarray | None = None  # Track latest observation
+        self._current_obs: np.ndarray = None  # Track latest observation
 
         # Episode tracking
         self.games_completed = 0
@@ -97,8 +96,8 @@ class BigTwoWrapper(gym.Env):
         if self.game is None:
             self.game = ToyBigTwoFullRules(self.num_players, self.track_move_history)
 
-        if self.obs_vectorizer is None:
-            self.obs_vectorizer = ObservationVectorizer(self.obs_config)
+        # Observation vectorizer not needed anymore - using direct observation builders
+        self.obs_vectorizer = None
 
         if self.episode_manager is None:
             self.episode_manager = EpisodeManager(
@@ -116,7 +115,7 @@ class BigTwoWrapper(gym.Env):
 
         Args:
             seed: Random seed for reproducibility
-            options: Additional options (unused)
+            options: Additional options
 
         Returns:
             Tuple of (initial_observation, info_dict) from current player
@@ -130,7 +129,7 @@ class BigTwoWrapper(gym.Env):
 
         # Reset all components
         self.game.reset()
-        self.obs_vectorizer.reset()
+        # Observation builder doesn't need reset
         self.episode_manager.reset_episode()
 
         # Reset true self-play tracking
@@ -184,12 +183,34 @@ class BigTwoWrapper(gym.Env):
             else:
                 raise ValueError("No legal actions available")
 
-        # Translate action to game move
-        player_hand = self.game.hands[current_player]
-        game_move = self.action_system.translate_action_to_game_move(action_id, player_hand)
+        # Translate action to slot indices and execute directly using Hand API
+        slot_indices = self._translate_action_to_game_move(action_id, current_player)
 
-        # Execute in game engine (reuse existing step logic)
-        player_reward = self._execute_game_move(current_player, game_move, current_obs, action_id)
+        # Execute move using new Hand API - much simpler!
+        success = self.game.play_hand_move(current_player, slot_indices)
+        if not success:
+            # Move was not legal - this shouldn't happen with proper action masking
+            # Force pass as fallback
+            self.game.play_hand_move(current_player, [])
+
+        # Calculate reward for experience collection (just 0, final rewards applied later)
+        player_reward = 0.0
+
+        # Increment step counter for episode metrics
+        self.episode_manager.increment_steps()
+
+        # Store experience for training
+        self.player_experiences.append(
+            {
+                "player": current_player,
+                "observation": current_obs,
+                "action": action_id,
+                "reward": player_reward,  # Will be updated with final rewards later
+                "done": self.game.done,
+                "info": {},
+                "legal_moves_count": np.sum(self.get_action_mask()),
+            }
+        )
 
         # Handle game/episode completion
         if self.game.done:
@@ -201,7 +222,7 @@ class BigTwoWrapper(gym.Env):
                 return self._finalize_episode()
             # Start next game
             self.game.reset()
-            self.obs_vectorizer.reset()
+            # obs_vectorizer is no longer used (using direct observation builders)
 
         # Return observation for next player
         next_obs = self._get_observation(self.game.current_player)
@@ -217,107 +238,12 @@ class BigTwoWrapper(gym.Env):
 
         return next_obs, player_reward, self.episode_complete, False, info
 
-    def _execute_game_move(self, player: int, game_move: np.ndarray, obs: np.ndarray, action_id: int) -> float:
-        """Execute game move and return reward (adapted for fixed actions)."""
-        # Convert game move to legacy format for compatibility with existing game engine
-        if np.any(game_move):  # Not a pass
-            # Find legal moves and match with our game move
-            legal_moves = self.game.legal_moves(player)
-
-            # Try to find exact match
-            for i, legal_move in enumerate(legal_moves):
-                if np.array_equal(game_move, legal_move):
-                    # Use old step logic with index i
-                    return self._execute_player_action(player, i, obs, action_id)
-
-            # If no exact match, this might be an invalid action
-            # Try to find pass move (all-zeros array)
-            pass_move = np.zeros(52, dtype=bool)
-            for i, legal_move in enumerate(legal_moves):
-                if np.array_equal(legal_move, pass_move):
-                    return self._execute_player_action(player, i, obs, action_id)
-
-            # If no pass available, force first legal move
-            if len(legal_moves) > 0:
-                return self._execute_player_action(player, 0, obs, action_id)
-            raise ValueError("No legal moves available")
-        # Pass move - find pass in legal moves
-        legal_moves = self.game.legal_moves(player)
-        pass_move = np.zeros(52, dtype=bool)
-        for i, legal_move in enumerate(legal_moves):
-            if np.array_equal(legal_move, pass_move):
-                return self._execute_player_action(player, i, obs, action_id)
-
-        # If pass not allowed, force first legal move
-        if len(legal_moves) > 0:
-            return self._execute_player_action(player, 0, obs, action_id)
-        raise ValueError("No legal moves available")
-
-    def _execute_player_action(
-        self,
-        player: int,
-        legacy_action: int,
-        current_obs: np.ndarray,
-        fixed_action_id: int,
-    ) -> float:
-        """Execute an action for a specific player and collect their experience.
-
-        Args:
-            player: Player index (0-3)
-            legacy_action: Legacy action index for game engine
-            current_obs: Player's observation before the action
-            fixed_action_id: Fixed action ID for experience tracking
-
-        Returns:
-            Reward received by the player for this action
-
-        """
-        # Validate legacy action is within legal moves bounds
-        legal_moves = self.game.legal_moves(player)
-        max_action = len(legal_moves)  # Pass action index
-
-        if legacy_action > max_action:
-            # Invalid action - force a valid action
-            if len(legal_moves) > 0:
-                legacy_action = 0  # Take first legal move
-            else:
-                legacy_action = max_action  # Force pass
-        elif legacy_action < 0:
-            # Negative action - force first legal move or pass
-            legacy_action = 0 if len(legal_moves) > 0 else max_action
-
-        # Track move metrics and bonuses BEFORE executing the move
-        if legacy_action < len(legal_moves):
-            self._track_move_metrics_and_bonuses(legal_moves, legacy_action, player)
-
-        # Execute action in the game
-        game_obs_dict, rewards_list, game_done, info_dict = self.game.step(legacy_action)
-
-        # Increment step counter for episode metrics
-        self.episode_manager.increment_steps()
-
-        # Get reward for this player (immediate reward, final rewards handled later)
-        player_reward = 0.0  # Only final rewards count to avoid double-counting
-
-        # Store this player's experience for training (using fixed action ID)
-        self.player_experiences.append(
-            {
-                "player": player,
-                "observation": current_obs,
-                "action": fixed_action_id,  # Store fixed action ID
-                "reward": player_reward,  # Will be updated with final rewards later
-                "done": game_done,
-                "info": info_dict,
-                "legal_moves_count": np.sum(self.get_action_mask()),
-            },
-        )
-
-        return player_reward
+    # Complex action execution methods removed - using Hand API directly in step()
 
     def _apply_final_rewards(self):
         """Apply final rewards to all collected experiences when game ends."""
-        # Calculate cards left for all players at game end
-        all_cards_left = [int(np.sum(self.game.hands[i])) for i in range(self.num_players)]
+        # Calculate cards left for all players at game end using Hand API
+        all_cards_left = self.game.get_player_card_counts()
 
         # Find winner and process with episode manager
         winner_player, _ = self.episode_manager.handle_game_end(all_cards_left)
@@ -359,19 +285,36 @@ class BigTwoWrapper(gym.Env):
         if self.game.done or self.episode_complete:
             return np.zeros(self.action_space.n, dtype=bool)
 
-        current_player = self.game.current_player
-        player_hand = self.game.hands[current_player]
+        # Use Hand API methods directly - no format conversion needed!
+        current_hand = self.game.get_player_hand(self.game.current_player)
+        last_played_cards = self.game.get_last_played_cards_encoded()
+        is_first_play = self.game.is_first_play()
+        has_control = self.game.has_control()
 
-        return self.action_masker.full_mask_indices()
+        # Get valid action indices from the action masker
+        pass_allowed = not is_first_play  # Can't pass on first play
+        valid_action_ids = self.action_masker.full_mask_indices(
+            current_hand,
+            last_played_cards,
+            pass_allowed=pass_allowed,
+            is_first_play=is_first_play,
+            has_control=has_control,
+        )
 
-        return self.action_system.get_legal_action_mask(self.game, player_hand)
+        # Convert list of valid action IDs to boolean mask
+        mask = np.zeros(self.action_space.n, dtype=bool)
+        for action_id in valid_action_ids:
+            if 0 <= action_id < self.action_space.n:
+                mask[action_id] = True
+
+        return mask
 
     def action_masks(self) -> np.ndarray:
         """Compatibility alias for ActionMasker wrapper."""
         return self.get_action_mask()
 
     def _get_observation(self, player: int) -> np.ndarray:
-        """Get observation for specific player using observation vectorizer.
+        """Get observation for specific player using simplified Hand API.
 
         Args:
             player: Player index (0-3)
@@ -380,112 +323,60 @@ class BigTwoWrapper(gym.Env):
             Observation vector for the player
 
         """
-        # Temporarily set current player to get observation from their perspective
-        original_player = self.game.current_player
-        self.game.current_player = player
+        from .observation import BasicObservationBuilder
 
-        # Get raw observation from game engine
-        raw_obs = self.game._get_obs()
+        # Use Hand API methods directly - no format conversion needed!
+        player_hand = self.game.get_player_hand(player)
+        player_card_counts = self.game.get_player_card_counts()
+        last_played_cards = self.game.get_last_played_cards_encoded()
+        passes = self.game.passes_in_row
+        is_first_play = self.game.is_first_play()
 
-        # Restore original current player
-        self.game.current_player = original_player
+        # Use BasicObservationBuilder for now (can be made configurable later)
+        if not hasattr(self, "obs_builder"):
+            self.obs_builder = BasicObservationBuilder()
 
-        # Convert to observation vector
-        return self.obs_vectorizer.vectorize(raw_obs, self.game)
-
-    def _track_move_metrics_and_bonuses(
-        self,
-        legal_moves: list[np.ndarray],
-        action: int,
-        current_player: int,
-    ) -> None:
-        """Track move bonuses and move types for comprehensive metrics."""
-        if action >= len(legal_moves):
-            return  # Pass action, nothing to track
-
-        selected_move = legal_moves[action]
-
-        if isinstance(selected_move, np.ndarray):
-            # Convert boolean mask to list of card indices
-            move_cards = np.where(selected_move)[0].tolist()
-
-            # Track move type for episode metrics
-            self.episode_manager.track_move_type(move_cards)
-
-            # Calculate and track move bonus if reward function supports it
-            if self.reward_function is not None and hasattr(
-                self.reward_function,
-                "move_bonus",
-            ):
-                # Build game context for strategic move evaluation
-                game_context = self._build_game_context(current_player)
-
-                # Call move_bonus with context (backward compatible)
-                sig = inspect.signature(self.reward_function.move_bonus)
-                if "game_context" in sig.parameters:
-                    move_bonus = self.reward_function.move_bonus(
-                        move_cards,
-                        game_context,
-                    )
-                else:
-                    move_bonus = self.reward_function.move_bonus(move_cards)
-
-                self.episode_manager.add_move_bonus(move_bonus)
-
-    def _build_game_context(self, player_idx: int) -> dict[str, Any]:
-        """Build game context dictionary for move quality evaluation."""
-        context = {}
-
-        # Get player's remaining hand
-        player_hand = self.game.hands[player_idx]
-        remaining_hand = np.where(player_hand)[0].tolist()
-        context["remaining_hand"] = remaining_hand
-
-        # Get opponent card counts
-        opponent_card_counts = []
-        for i in range(self.num_players):
-            if i != player_idx:
-                card_count = int(np.sum(self.game.hands[i]))
-                opponent_card_counts.append(card_count)
-        context["opponent_card_counts"] = opponent_card_counts
-
-        # Determine game phase based on card counts
-        min_hand_size = min(
-            [int(np.sum(self.game.hands[i])) for i in range(self.num_players)],
-        )
-        max_hand_size = max(
-            [int(np.sum(self.game.hands[i])) for i in range(self.num_players)],
+        # Build observation vector
+        obs = self.obs_builder.build_observation(
+            hand=player_hand,
+            current_player=player,
+            player_card_counts=player_card_counts,
+            last_played_cards=last_played_cards,
+            passes=passes,
+            is_first_play=is_first_play,
         )
 
-        if max_hand_size > 10:
-            game_phase = "OPENING"
-        elif min_hand_size <= 3:
-            game_phase = "ENDGAME"
-        else:
-            game_phase = "MIDGAME"
-        context["game_phase"] = game_phase
+        return obs
 
-        # Get last play information
-        last_play_strength = 1  # Default single card strength
-        if self.game.last_play is not None:
-            last_play_cards = np.where(self.game.last_play[0])[0]
-            last_play_strength = len(last_play_cards)
-        context["last_play_strength"] = last_play_strength
+    # Move tracking methods removed - simplified architecture
 
-        # Get current turn and position info
-        context["current_player"] = self.game.current_player
-        context["controlled_player"] = player_idx  # In self-play, current player is "controlled"
-        context["passes_in_row"] = self.game.passes_in_row
+    def _translate_action_to_game_move(self, action_id: int, player_idx: int) -> List[int]:
+        """Translate action ID to slot indices for Hand API.
 
-        # Get game progress metrics
-        total_cards_dealt = self.num_players * 13  # Standard 52 cards, 4 players
-        total_cards_remaining = sum(
-            [int(np.sum(self.game.hands[i])) for i in range(self.num_players)],
-        )
-        cards_played_total = total_cards_dealt - total_cards_remaining
-        context["cards_played_ratio"] = cards_played_total / total_cards_dealt if total_cards_dealt > 0 else 0
+        Args:
+            action_id: Action ID from 0-1364
+            player_idx: Current player index
 
-        return context
+        Returns:
+            List of slot indices for play_hand_move()
+
+        """
+        from .action import OFF_PASS, action_to_tuple
+
+        # Handle pass action
+        if action_id == OFF_PASS:
+            return []
+
+        # Convert action ID to tuple of card slot indices
+        try:
+            card_slots = action_to_tuple(action_id)
+            return list(card_slots)
+        except ValueError:
+            # Invalid action ID, fall back to pass
+            return []
+
+    # All format conversion methods removed!
+    # ToyBigTwoFullRules now provides Hand API methods directly.
 
     def _handle_episode_completion(self) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
         """Handle when step is called but episode is already complete."""

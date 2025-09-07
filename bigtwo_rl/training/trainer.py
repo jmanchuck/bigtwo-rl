@@ -1,369 +1,309 @@
-"""Big Two Trainer with 1,365-action space.
-
-This trainer provides proper action masking and enhanced training capabilities
-using the fixed 1,365-action space for optimal RL performance.
-"""
+"""Training pipeline for Big Two agents with 1,365-action space."""
 
 import os
 import time
-from typing import Any
+from pathlib import Path
+from typing import Optional, Tuple, Dict, Any, Any as TypingAny
 
-from sb3_contrib.common.wrappers import ActionMasker
-from stable_baselines3.common.callbacks import EvalCallback
-from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.vec_env import DummyVecEnv
+import numpy as np
+import torch
 
-from bigtwo_rl.core.bigtwo_wrapper import BigTwoWrapper
-from bigtwo_rl.core.observation_builder import ObservationConfig
-from bigtwo_rl.training.hyperparams import BaseConfig
-from bigtwo_rl.training.rewards.base_reward import BaseReward
+from .rewards.base_reward import BaseReward
 
-from .callbacks import BigTwoMetricsCallback
-from .masked_policy import MaskedBigTwoPolicy
-from .multi_player_ppo import MultiPlayerPPO
-from .self_play_callback import SelfPlayPPOCallback
+# Try to import stable-baselines3 components
+try:
+    from stable_baselines3 import PPO
+    from stable_baselines3.common.env_util import make_vec_env
+    from stable_baselines3.common.policies import ActorCriticPolicy
+    from stable_baselines3.common.callbacks import EvalCallback, BaseCallback
+    from stable_baselines3.common.logger import configure
+
+    SB3_AVAILABLE = True
+except ImportError:
+    # Explicitly annotate Nones to avoid shadowing issues in type checker
+    PPO: TypingAny | None = None
+    make_vec_env: TypingAny | None = None
+    ActorCriticPolicy: TypingAny | None = None
+    EvalCallback: TypingAny | None = None
+    BaseCallback: TypingAny | None = None
+    configure: TypingAny | None = None
+    SB3_AVAILABLE = False
+
+
+class MaskedActorCriticPolicy(ActorCriticPolicy):
+    """Actor-Critic policy with action masking support."""
+
+    def forward(self, obs, deterministic=False, action_masks=None):
+        """Forward pass with optional action masking.
+
+        Args:
+            obs: Observations
+            deterministic: Whether to use deterministic actions
+            action_masks: Boolean masks for legal actions
+
+        Returns:
+            actions, values, log_probs
+        """
+        # Get action distribution from policy
+        distribution = self._get_action_dist_from_latent(self._get_latent(obs)[0])
+
+        # Apply action masks if provided
+        if action_masks is not None:
+            # Mask out illegal actions by setting their logits to -inf
+            logits = distribution.distribution.logits
+            masked_logits = torch.where(
+                action_masks, logits, torch.tensor(-float("inf"), device=logits.device, dtype=logits.dtype)
+            )
+
+            # Create new distribution with masked logits
+            from torch.distributions import Categorical
+
+            distribution.distribution = Categorical(logits=masked_logits)
+
+        actions = distribution.get_actions(deterministic=deterministic)
+        values = self.value_net(self._get_latent(obs)[1])
+        log_probs = distribution.log_prob(actions)
+
+        return actions, values, log_probs.reshape(-1, 1)
+
+
+class ActionMaskingWrapper:
+    """Wrapper to provide action masking for the environment."""
+
+    def __init__(self, env):
+        self.env = env
+        self.observation_space = env.observation_space
+        self.action_space = env.action_space
+
+    def reset(self, **kwargs):
+        return self.env.reset(**kwargs)
+
+    def step(self, action):
+        return self.env.step(action)
+
+    def close(self):
+        return self.env.close()
+
+    def get_action_mask(self):
+        """Get action mask from environment."""
+        return self.env.get_action_mask()
 
 
 class Trainer:
-    """Big Two trainer using 1,365-action space.
-
-    This trainer provides proper action masking and enhanced training capabilities
-    using the fixed 1,365-action space for optimal RL performance.
-    """
+    """Training pipeline for Big Two agents."""
 
     def __init__(
         self,
-        reward_function: BaseReward,
-        hyperparams: BaseConfig,
-        observation_config: ObservationConfig,
-        **kwargs,
-    ) -> None:
-        """Initialize Fixed Action Trainer.
+        reward_function: Optional[BaseReward] = None,
+        num_players: int = 4,
+        games_per_episode: int = 5,
+        learning_rate: float = 3e-4,
+        gamma: float = 0.99,
+        n_steps: int = 512,
+        batch_size: int = 64,
+        n_epochs: int = 10,
+        clip_range: float = 0.2,
+        device: str = "auto",
+    ):
+        """Initialize trainer.
 
         Args:
-            reward_function: Custom reward function
-            hyperparams: Hyperparameter configuration
-            observation_config: Observation configuration
-            **kwargs: Additional arguments
-
+            reward_function: Reward function to use
+            num_players: Number of players (must be 4)
+            games_per_episode: Games per episode
+            learning_rate: Learning rate for PPO
+            gamma: Discount factor
+            n_steps: Steps per rollout
+            batch_size: Batch size for updates
+            n_epochs: Epochs per update
+            clip_range: PPO clipping range
+            device: Device to use ('cpu', 'cuda', or 'auto')
         """
-        # Store core config
+        if not SB3_AVAILABLE:
+            raise ImportError("stable-baselines3 is required for training. Install with: pip install stable-baselines3")
+
+        # Import DefaultReward here to avoid circular import
+        if reward_function is None:
+            from .rewards import DefaultReward
+
+            reward_function = DefaultReward()
         self.reward_function = reward_function
-        self.reward_name = reward_function.__class__.__name__
-        self.hyperparams = hyperparams
-        self.config = hyperparams.to_dict()
-        self.config_name = hyperparams.__class__.__name__
+        self.num_players = num_players
+        self.games_per_episode = games_per_episode
 
-        self.observation_config = observation_config
+        # PPO hyperparameters
+        self.learning_rate = learning_rate
+        self.gamma = gamma
+        self.n_steps = n_steps
+        self.batch_size = batch_size
+        self.n_epochs = n_epochs
+        self.clip_range = clip_range
+        self.device = device
 
-        # Enhanced settings
-        self.verbose = kwargs.get("verbose", 1)
-        self.model_save_dir = kwargs.get("model_save_dir", "./models")
-        self.tensorboard_log_dir = kwargs.get("tensorboard_log_dir", "./logs")
+        # Set device
+        if device == "auto":
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    def _create_model_instance(self, env, model_name: str, verbose: bool) -> MultiPlayerPPO:
-        """Create PPO model instance with masked policy.
+        print(f"✓ Trainer initialized with device: {self.device}")
+
+    def _create_env(self):
+        """Create training environment."""
+        # Import here to avoid circular import
+        from ..core.bigtwo_wrapper import BigTwoWrapper
+
+        return BigTwoWrapper(
+            reward_function=self.reward_function, num_players=self.num_players, games_per_episode=self.games_per_episode
+        )
+
+    def train(
+        self,
+        total_timesteps: int = 25000,
+        model_name: Optional[str] = None,
+        log_dir: str = "./logs",
+        save_dir: str = "./models",
+        eval_freq: int = 5000,
+        verbose: int = 1,
+    ) -> Tuple[PPO, str]:
+        """Train a PPO agent.
 
         Args:
-            env: Training environment
-            model_name: Name for model logging
+            total_timesteps: Total training timesteps
+            model_name: Name for the model (defaults to timestamp)
+            log_dir: Directory for logs
+            save_dir: Directory to save models
+            eval_freq: Evaluation frequency
             verbose: Verbosity level
 
         Returns:
-            MultiPlayerPPO model with masked policy
-
-        """
-        tb_log = os.path.join(self.tensorboard_log_dir, model_name)
-
-        # Validate action space
-        if env.action_space.n != 1365:
-            raise ValueError(f"Expected 1365 actions, got {env.action_space.n}")
-
-        return MultiPlayerPPO(
-            policy=MaskedBigTwoPolicy,  # Our new policy with masking
-            env=env,  # BigTwoWrapper
-            learning_rate=self.config["learning_rate"],
-            n_steps=self.config["n_steps"],
-            batch_size=self.config["batch_size"],
-            n_epochs=self.config["n_epochs"],
-            gamma=self.config["gamma"],
-            gae_lambda=self.config["gae_lambda"],
-            clip_range=self.config["clip_range"],
-            verbose=1 if verbose else 0,
-            tensorboard_log=tb_log,
-            device="auto",
-        )
-
-    def _make_env(self) -> ActionMasker:
-        """Create environment instance with fixed action space.
-
-        Returns:
-            Environment with fixed 1365-action space
-
-        """
-        env = BigTwoWrapper(
-            observation_config=self.observation_config,
-            games_per_episode=self.config["games_per_episode"],
-            reward_function=self.reward_function,
-            track_move_history=False,
-        )
-        return ActionMasker(env, lambda e: e.get_action_mask())
-
-    def train(self, total_timesteps: int = 50000, **kwargs) -> tuple[MultiPlayerPPO, str]:
-        """Train with fixed action space.
-
-        Args:
-            total_timesteps: Total training timesteps
-            **kwargs: Additional training arguments
-
-        Returns:
             Tuple of (trained_model, model_directory)
-
         """
-        print("🎯 Training with fixed 1,365-action space")
-        print(f"📊 Action space size: {self._make_env().action_space.n}")
+        # Create model name if not provided
+        if model_name is None:
+            model_name = f"bigtwo_ppo_{int(time.time())}"
 
-        # Validate environment
-        test_env = self._make_env()
-        if test_env.action_space.n != 1365:
-            raise ValueError(f"Environment has wrong action space size: {test_env.action_space.n}")
+        # Create directories
+        model_dir = Path(save_dir) / model_name
+        model_dir.mkdir(parents=True, exist_ok=True)
 
-        # Build environments
-        env, eval_env = self._setup_training_environments()
+        log_path = Path(log_dir) / model_name
+        log_path.mkdir(parents=True, exist_ok=True)
 
-        # Create model
-        model_name = f"{self.config_name}_{self.reward_name}"
-        model = self._create_model_instance(env, model_name, verbose=self.verbose >= 1)
+        print(f"Training model: {model_name}")
+        print(f"Model directory: {model_dir}")
+        print(f"Log directory: {log_path}")
 
-        # Prepare callbacks
-        models_dir = os.path.join(self.model_save_dir, model_name)
-        os.makedirs(models_dir, exist_ok=True)
-        callbacks = self._setup_callbacks(eval_env, models_dir)
+        # Create environment
+        env = self._create_env()
 
-        # Learn
-        start_time = time.time()
-        model.learn(total_timesteps=total_timesteps, callback=callbacks, progress_bar=kwargs.get("progress_bar", True))
-        end_time = time.time()
+        # Create policy with action masking support
+        policy_kwargs = {"activation_fn": torch.nn.ReLU, "net_arch": dict(pi=[128, 128], vf=[128, 128])}
 
-        # Save
-        self._save_model_and_metadata(model, models_dir, total_timesteps)
+        # Create PPO model
+        model = PPO(
+            "MlpPolicy",  # Use standard MLP policy for now
+            env,
+            learning_rate=self.learning_rate,
+            gamma=self.gamma,
+            n_steps=self.n_steps,
+            batch_size=self.batch_size,
+            n_epochs=self.n_epochs,
+            clip_range=self.clip_range,
+            policy_kwargs=policy_kwargs,
+            verbose=verbose,
+            device=self.device,
+            tensorboard_log=str(log_path),
+        )
 
-        # Additional fixed action space validation
-        self._validate_training(model, models_dir)
+        print(f"✓ PPO model created with {total_timesteps} timesteps")
 
-        training_time = end_time - start_time
-        print(f"✅ Training completed in {training_time:.1f}s")
-        print(f"📁 Model saved to: {models_dir}")
-
-        return model, models_dir
-
-    def _setup_training_environments(self):
-        """Create training and evaluation environments."""
-
-        def make_env(is_eval=False):
-            env = self._make_env()
-            if is_eval:
-                env = Monitor(env)
-            return env
-
-        env = DummyVecEnv([lambda: make_env() for _ in range(self.config["n_envs"])])
-        eval_env = DummyVecEnv([lambda: make_env(is_eval=True)])
-        return env, eval_env
-
-    def _setup_callbacks(self, eval_env, models_dir: str):
-        """Setup training callbacks (evaluation, metrics, snapshots)."""
+        # Create evaluation callback
+        eval_env = self._create_env()
         eval_callback = EvalCallback(
             eval_env,
-            best_model_save_path=models_dir,
-            log_path=os.path.join(self.tensorboard_log_dir, os.path.basename(models_dir)),
-            eval_freq=500,  # Default eval frequency
+            best_model_save_path=str(model_dir),
+            log_path=str(model_dir / "evaluations"),
+            eval_freq=eval_freq,
             deterministic=True,
             render=False,
-            verbose=0,
+            n_eval_episodes=5,
+            verbose=verbose,
         )
-        callbacks = [eval_callback]
-        callbacks.append(BigTwoMetricsCallback(verbose=0))
-        callbacks.append(SelfPlayPPOCallback(verbose=1))
-        return callbacks
 
-    def _save_model_and_metadata(self, model, models_dir: str, total_timesteps: int):
-        """Save final model and metadata."""
-        model.save(f"{models_dir}/final_model")
+        print("🚀 Starting training...")
+        start_time = time.time()
 
-        if self.observation_config is not None:
-            from ..agents.model_metadata import ModelMetadata
+        # Train the model
+        model.learn(total_timesteps=total_timesteps, callback=eval_callback, progress_bar=True)
 
-            test_env = self._make_env()
-            # Handle wrapped environments (e.g., ActionMasker)
-            env_to_check = test_env
-            while hasattr(env_to_check, "env") and not hasattr(env_to_check, "obs_config"):
-                env_to_check = env_to_check.env
+        training_time = time.time() - start_time
+        print(f"✅ Training completed in {training_time:.1f} seconds")
 
-            additional_info = {
-                "reward_function": self.reward_name,
-                "hyperparams": self.config_name,
-                "total_timesteps": total_timesteps,
-            }
-            ModelMetadata.save_metadata(models_dir, env_to_check.obs_config, additional_info)
+        # Save final model
+        final_model_path = model_dir / "final_model"
+        model.save(final_model_path)
+        print(f"✓ Final model saved to: {final_model_path}")
 
-    def _validate_training(self, model: MultiPlayerPPO, model_dir: str):
-        """Validate that training worked correctly.
-
-        Args:
-            model: Trained model
-            model_dir: Model directory
-
-        """
-        print("🔍 Validating training...")
-
-        # Check model action space
-        if model.action_space.n != 1365:
-            raise ValueError(f"Model has wrong action space: {model.action_space.n}")
-
-        # Check policy type
-        if not isinstance(model.policy, MaskedBigTwoPolicy):
-            print(f"⚠️  Warning: Model policy is {type(model.policy)}, expected MaskedBigTwoPolicy")
-
-        # Test action masking
-        test_env = self._make_env()
-        obs, _ = test_env.reset()
-        action_mask = test_env.action_masks()
-
-        # Verify mask properties
-        valid_actions = action_mask.sum()
-        if valid_actions == 0:
-            print("⚠️  Warning: No valid actions in initial state")
-        elif valid_actions > 100:
-            print(f"ℹ️  Initial state has {valid_actions} valid actions")
-
-        # Test model prediction
-        try:
-            action, _ = model.predict(obs, deterministic=True)
-            if not action_mask[action]:
-                print(f"⚠️  Warning: Model predicted invalid action {action}")
-            else:
-                print("✅ Model prediction validation passed")
-        except Exception as e:
-            print(f"⚠️  Warning: Model prediction failed: {e}")
-
-        # Check if model files exist
-        expected_files = ["final_model.zip", "best_model.zip"]
-        for filename in expected_files:
-            filepath = os.path.join(model_dir, filename)
-            if os.path.exists(filepath):
-                print(f"✅ Found {filename}")
-            else:
-                print(f"⚠️  Missing {filename}")
-
-    def get_training_info(self) -> dict[str, Any]:
-        """Get information about this trainer's configuration.
-
-        Returns:
-            Dictionary with trainer information
-
-        """
-        info = {
-            "trainer_type": "Trainer",
-            "action_space_type": "fixed",
-            "action_space_size": 1365,
-            "uses_action_masking": True,
-            "policy_type": "MaskedBigTwoPolicy",
-            "supports_invalid_actions": False,  # All actions are properly masked
+        # Save training metadata
+        metadata = {
+            "model_name": model_name,
+            "total_timesteps": total_timesteps,
+            "training_time_seconds": training_time,
+            "reward_function": self.reward_function.__class__.__name__,
+            "hyperparameters": {
+                "learning_rate": self.learning_rate,
+                "gamma": self.gamma,
+                "n_steps": self.n_steps,
+                "batch_size": self.batch_size,
+                "n_epochs": self.n_epochs,
+                "clip_range": self.clip_range,
+            },
+            "environment": {
+                "num_players": self.num_players,
+                "games_per_episode": self.games_per_episode,
+                "action_space": 1365,
+                "observation_space": 168,
+            },
         }
 
-        return info
-
-
-class EnhancedTrainer(Trainer):
-    """Enhanced version with additional training features.
-
-    This trainer adds extra functionality like advanced logging,
-    action distribution tracking, and training diagnostics.
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.track_action_distributions = kwargs.get("track_action_distributions", False)
-        self.action_stats = {}
-
-    def train(self, total_timesteps: int = 50000, **kwargs) -> tuple[MultiPlayerPPO, str]:
-        """Enhanced training with additional monitoring.
-
-        Args:
-            total_timesteps: Total training timesteps
-            **kwargs: Additional arguments
-
-        Returns:
-            Tuple of (trained_model, model_directory)
-
-        """
-        print("🚀 Starting enhanced fixed action space training")
-
-        if self.track_action_distributions:
-            print("📊 Action distribution tracking enabled")
-            self._setup_action_tracking()
-
-        # Run base training
-        model, model_dir = super().train(total_timesteps, **kwargs)
-
-        # Additional analysis
-        if self.track_action_distributions:
-            self._analyze_action_distributions(model_dir)
-
-        return model, model_dir
-
-    def _setup_action_tracking(self):
-        """Setup action distribution tracking."""
-        self.action_stats = {
-            "action_counts": {},
-            "hand_type_preferences": {},
-            "mask_statistics": {"total_masks": 0, "avg_valid_actions": 0},
-        }
-
-    def _analyze_action_distributions(self, model_dir: str):
-        """Analyze action distributions from training.
-
-        Args:
-            model_dir: Model directory for saving analysis
-
-        """
-        print("📈 Analyzing action distributions...")
-
-        # This would analyze action usage patterns, hand type preferences, etc.
-        # For now, just placeholder output
-        analysis = {
-            "total_actions_analyzed": self.action_stats.get("total_actions", 0),
-            "most_used_actions": "Analysis not yet implemented",
-            "hand_type_distribution": "Analysis not yet implemented",
-            "masking_efficiency": "Analysis not yet implemented",
-        }
-
-        # Save analysis
         import json
 
-        analysis_path = os.path.join(model_dir, "action_analysis.json")
-        with open(analysis_path, "w") as f:
-            json.dump(analysis, f, indent=2)
+        with open(model_dir / "metadata.json", "w") as f:
+            json.dump(metadata, f, indent=2)
 
-        print(f"📊 Action analysis saved to: {analysis_path}")
+        print(f"✓ Metadata saved to: {model_dir / 'metadata.json'}")
+
+        return model, str(model_dir)
 
 
-# Factory function for trainer creation
-def create_trainer(use_fixed_actions: bool = True, enhanced: bool = False, **kwargs) -> Trainer:
-    """Factory to create trainer based on preferences.
+# Convenience function for quick training
+def quick_train(
+    reward_function: Optional[BaseReward] = None, total_timesteps: int = 10000, model_name: str = "quick_test"
+) -> Tuple[PPO, str]:
+    """Quick training function for testing.
 
     Args:
-        use_fixed_actions: If True, use fixed action space trainer
-        enhanced: If True, use enhanced trainer with extra features
-        **kwargs: Arguments passed to trainer constructor
+        reward_function: Reward function to use
+        total_timesteps: Training timesteps
+        model_name: Model name
 
     Returns:
-        Appropriate trainer instance
-
+        Tuple of (model, model_directory)
     """
-    if use_fixed_actions:
-        if enhanced:
-            return EnhancedTrainer(**kwargs)
-        return Trainer(**kwargs)
-    # Fall back to legacy trainer
-    return Trainer(**kwargs)
+    if reward_function is None:
+        from .rewards import DefaultReward
+
+        reward_function = DefaultReward()
+
+    trainer = Trainer(
+        reward_function=reward_function,
+        learning_rate=5e-4,  # Faster learning for quick tests
+        n_steps=256,  # Smaller rollouts
+        games_per_episode=3,  # Fewer games per episode
+    )
+
+    return trainer.train(
+        total_timesteps=total_timesteps,
+        model_name=model_name,
+        eval_freq=2000,  # Less frequent evaluation
+        verbose=1,
+    )

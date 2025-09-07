@@ -251,7 +251,7 @@ def comb_index_5(i: int, j: int, k: int, ell: int, m: int) -> int:
 # Action mask builder (plugs any FiveCardEngine)
 # ============================================================
 class ActionMaskBuilder:
-    def __init__(self, five_engine: FiveCardEngine = None):
+    def __init__(self, five_engine: FiveCardEngine | None = None):
         if five_engine is None:
             self.five = BitsetFiveCardEngine()
         else:
@@ -279,7 +279,7 @@ class ActionMaskBuilder:
                 continue
             c = card[i]
             r, s = c >> 2, c & 3  # Inline rank_of/suit_of for speed
-            if last_kind == HandType.SINGLE and not ((r, s) > last_key):
+            if last_kind == HandType.SINGLE and last_key is not None and not ((r, s) > last_key):
                 continue
             ids.append(OFF_1 + i)
 
@@ -291,7 +291,7 @@ class ActionMaskBuilder:
             if (ci >> 2) != (cj >> 2):  # Compare ranks directly
                 continue
             r = ci >> 2
-            if last_kind == HandType.PAIR and not (r > last_key[0]):
+            if last_kind == HandType.PAIR and last_key is not None and not (r > last_key[0]):
                 continue
             ids.append(PAIR_ID[(i, j)])
 
@@ -303,7 +303,7 @@ class ActionMaskBuilder:
             r0 = ci >> 2
             if r0 != (cj >> 2) or r0 != (ck >> 2):
                 continue
-            if last_kind == HandType.TRIPLE and not (r0 > last_key[0]):
+            if last_kind == HandType.TRIPLE and last_key is not None and not (r0 > last_key[0]):
                 continue
             ids.append(TRIPLE_ID[(i, j, k)])
         return ids
