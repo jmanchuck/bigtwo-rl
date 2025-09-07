@@ -1,22 +1,21 @@
 """Training pipeline for Big Two agents with 1,365-action space."""
 
-import os
 import time
 from pathlib import Path
-from typing import Optional, Tuple, Dict, Any, Any as TypingAny
+from typing import Any as TypingAny
 
-import numpy as np
 import torch
 
-from .rewards.base_reward import BaseReward
+from bigtwo_rl.training.rewards import DefaultReward
+from bigtwo_rl.training.rewards.base_reward import BaseReward
 
 # Try to import stable-baselines3 components
 try:
     from stable_baselines3 import PPO
+    from stable_baselines3.common.callbacks import BaseCallback, EvalCallback
     from stable_baselines3.common.env_util import make_vec_env
-    from stable_baselines3.common.policies import ActorCriticPolicy
-    from stable_baselines3.common.callbacks import EvalCallback, BaseCallback
     from stable_baselines3.common.logger import configure
+    from stable_baselines3.common.policies import ActorCriticPolicy
 
     SB3_AVAILABLE = True
 except ImportError:
@@ -43,6 +42,7 @@ class MaskedActorCriticPolicy(ActorCriticPolicy):
 
         Returns:
             actions, values, log_probs
+
         """
         # Get action distribution from policy
         distribution = self._get_action_dist_from_latent(self._get_latent(obs)[0])
@@ -52,7 +52,9 @@ class MaskedActorCriticPolicy(ActorCriticPolicy):
             # Mask out illegal actions by setting their logits to -inf
             logits = distribution.distribution.logits
             masked_logits = torch.where(
-                action_masks, logits, torch.tensor(-float("inf"), device=logits.device, dtype=logits.dtype)
+                action_masks,
+                logits,
+                torch.tensor(-float("inf"), device=logits.device, dtype=logits.dtype),
             )
 
             # Create new distribution with masked logits
@@ -94,7 +96,7 @@ class Trainer:
 
     def __init__(
         self,
-        reward_function: Optional[BaseReward] = None,
+        reward_function: BaseReward | None = None,
         num_players: int = 4,
         games_per_episode: int = 5,
         learning_rate: float = 3e-4,
@@ -118,6 +120,7 @@ class Trainer:
             n_epochs: Epochs per update
             clip_range: PPO clipping range
             device: Device to use ('cpu', 'cuda', or 'auto')
+
         """
         if not SB3_AVAILABLE:
             raise ImportError("stable-baselines3 is required for training. Install with: pip install stable-baselines3")
@@ -152,18 +155,20 @@ class Trainer:
         from ..core.bigtwo_wrapper import BigTwoWrapper
 
         return BigTwoWrapper(
-            reward_function=self.reward_function, num_players=self.num_players, games_per_episode=self.games_per_episode
+            reward_function=self.reward_function,
+            num_players=self.num_players,
+            games_per_episode=self.games_per_episode,
         )
 
     def train(
         self,
         total_timesteps: int = 25000,
-        model_name: Optional[str] = None,
+        model_name: str | None = None,
         log_dir: str = "./logs",
         save_dir: str = "./models",
         eval_freq: int = 5000,
         verbose: int = 1,
-    ) -> Tuple[PPO, str]:
+    ) -> tuple[PPO, str]:
         """Train a PPO agent.
 
         Args:
@@ -176,6 +181,7 @@ class Trainer:
 
         Returns:
             Tuple of (trained_model, model_directory)
+
         """
         # Create model name if not provided
         if model_name is None:
@@ -277,8 +283,10 @@ class Trainer:
 
 # Convenience function for quick training
 def quick_train(
-    reward_function: Optional[BaseReward] = None, total_timesteps: int = 10000, model_name: str = "quick_test"
-) -> Tuple[PPO, str]:
+    reward_function: BaseReward | None = None,
+    total_timesteps: int = 10000,
+    model_name: str = "quick_test",
+) -> tuple[PPO, str]:
     """Quick training function for testing.
 
     Args:
@@ -288,10 +296,9 @@ def quick_train(
 
     Returns:
         Tuple of (model, model_directory)
+
     """
     if reward_function is None:
-        from .rewards import DefaultReward
-
         reward_function = DefaultReward()
 
     trainer = Trainer(

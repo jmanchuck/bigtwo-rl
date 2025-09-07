@@ -5,9 +5,7 @@ turn-based games like Big Two, where each player only acts every 4th timestep.
 It implements the reference implementation's multi-player GAE calculation.
 """
 
-import numpy as np
 from stable_baselines3.common.callbacks import BaseCallback
-from typing import Optional
 
 
 class MultiPlayerGAECallback(BaseCallback):

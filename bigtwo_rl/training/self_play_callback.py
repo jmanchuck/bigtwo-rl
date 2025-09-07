@@ -15,11 +15,9 @@ Two callbacks are defined:
      (no value/logprob reconstruction); kept for future work.
 """
 
-import numpy as np
+from typing import Any
+
 from stable_baselines3.common.callbacks import BaseCallback
-from stable_baselines3.common.logger import Logger
-from typing import Dict, List, Any, Optional
-from collections import deque
 
 
 class SelfPlayPPOCallback(BaseCallback):
@@ -41,6 +39,7 @@ class SelfPlayPPOCallback(BaseCallback):
 
         Args:
             verbose: Verbosity level for logging
+
         """
         super().__init__(verbose)
         self.total_multi_player_experiences = 0
@@ -54,6 +53,7 @@ class SelfPlayPPOCallback(BaseCallback):
 
         Returns:
             True to continue training
+
         """
         # Check if any environments completed episodes with multi-player experiences
         for env_idx in range(self.training_env.num_envs):
@@ -67,12 +67,13 @@ class SelfPlayPPOCallback(BaseCallback):
 
         return True
 
-    def _process_multi_player_experiences(self, experiences: List[Dict[str, Any]], env_idx: int) -> None:
+    def _process_multi_player_experiences(self, experiences: list[dict[str, Any]], env_idx: int) -> None:
         """Process multi-player experiences and add them to PPO's buffer.
 
         Args:
             experiences: List of experience dicts from all players
             env_idx: Index of the environment that generated these experiences
+
         """
         if not experiences:
             return
@@ -100,7 +101,7 @@ class SelfPlayPPOCallback(BaseCallback):
             self._log_multi_player_stats()
 
     def _add_player_experiences_to_buffer(
-        self, experiences: List[Dict[str, Any]], env_idx: int, player_idx: int
+        self, experiences: list[dict[str, Any]], env_idx: int, player_idx: int,
     ) -> None:
         """Add a player's experiences to PPO's rollout buffer.
 
@@ -108,6 +109,7 @@ class SelfPlayPPOCallback(BaseCallback):
             experiences: List of experience dicts for one player
             env_idx: Environment index
             player_idx: Player index (1, 2, or 3)
+
         """
         if not hasattr(self.model, "rollout_buffer") or not experiences:
             return
@@ -138,7 +140,7 @@ class SelfPlayPPOCallback(BaseCallback):
                     "done": done,
                     "env_idx": env_idx,
                     "player_idx": player_idx,
-                }
+                },
             )
 
         self.total_multi_player_experiences += len(experiences)
@@ -219,7 +221,7 @@ class SimpleSelfPlayCallback(BaseCallback):
                 self.training_env.env_method("set_model_reference", self.model)
                 self.model_injected = True
                 # Model reference injected via env_method
-            except Exception as e:
+            except Exception:
                 # env_method injection failed
                 pass
         else:
@@ -239,10 +241,10 @@ class SimpleSelfPlayCallback(BaseCallback):
         if hasattr(env, "env") and hasattr(env.env, "set_model_reference"):
             return env.env
         # Direct access
-        elif hasattr(env, "set_model_reference"):
+        if hasattr(env, "set_model_reference"):
             return env
         # Look for unwrap method (common gym pattern)
-        elif hasattr(env, "unwrap"):
+        if hasattr(env, "unwrap"):
             unwrapped = env.unwrap()
             if hasattr(unwrapped, "set_model_reference"):
                 return unwrapped

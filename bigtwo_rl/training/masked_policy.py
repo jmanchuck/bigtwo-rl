@@ -4,15 +4,13 @@ This module provides a custom policy that handles action masking for the fixed
 1,365-action space, enabling proper training with invalid action suppression.
 """
 
+
 import torch
-import torch.nn as nn
-import numpy as np
 from gymnasium import spaces
-from stable_baselines3.common.policies import ActorCriticPolicy
-from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.distributions import CategoricalDistribution
+from stable_baselines3.common.policies import ActorCriticPolicy
 from stable_baselines3.common.type_aliases import Schedule
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
+from torch import nn
 
 
 class ReferenceMLPExtractor(nn.Module):
@@ -45,7 +43,7 @@ class ReferenceMLPExtractor(nn.Module):
         self.latent_dim_pi = 256
         self.latent_dim_vf = 256
 
-    def forward(self, features: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, features: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Forward pass through the MLP extractor.
 
         Args:
@@ -53,6 +51,7 @@ class ReferenceMLPExtractor(nn.Module):
 
         Returns:
             Tuple of (policy_latent, value_latent)
+
         """
         shared_latent = self.shared_net(features)
         return self.policy_net(shared_latent), self.value_net(shared_latent)
@@ -69,11 +68,12 @@ class MaskedCategorical(CategoricalDistribution):
         super().__init__(action_dim)
         self.mask = None
 
-    def set_mask(self, mask: Optional[torch.Tensor]):
+    def set_mask(self, mask: torch.Tensor | None):
         """Set action mask for this distribution.
 
         Args:
             mask: Boolean tensor where True = valid action, False = invalid
+
         """
         self.mask = mask
 
@@ -85,6 +85,7 @@ class MaskedCategorical(CategoricalDistribution):
 
         Returns:
             Self with updated distribution
+
         """
         if self.mask is not None:
             # Apply mask by setting invalid actions to very negative values
@@ -107,6 +108,7 @@ class MaskedCategorical(CategoricalDistribution):
 
         Returns:
             Log probabilities of the actions
+
         """
         log_probs = self.distribution.log_prob(actions)
 
@@ -137,11 +139,10 @@ class MaskedCategorical(CategoricalDistribution):
         if self.mask is not None:
             # Get the highest probability valid action
             masked_probs = torch.where(
-                self.mask.bool(), self.distribution.probs, torch.tensor(0.0, device=self.distribution.probs.device)
+                self.mask.bool(), self.distribution.probs, torch.tensor(0.0, device=self.distribution.probs.device),
             )
             return torch.argmax(masked_probs, dim=-1)
-        else:
-            return torch.argmax(self.distribution.probs, dim=-1)
+        return torch.argmax(self.distribution.probs, dim=-1)
 
 
 class MaskedBigTwoPolicy(ActorCriticPolicy):
@@ -159,6 +160,7 @@ class MaskedBigTwoPolicy(ActorCriticPolicy):
             action_space: Action space (must be Discrete(1365))
             lr_schedule: Learning rate schedule
             **kwargs: Additional arguments
+
         """
         # Force our specific architecture
         if not isinstance(action_space, spaces.Discrete) or action_space.n != 1365:
@@ -184,14 +186,15 @@ class MaskedBigTwoPolicy(ActorCriticPolicy):
 
         Returns:
             Masked categorical distribution
+
         """
         action_logits = self.action_net(latent_pi)
         action_dist = MaskedCategorical(self.action_space.n)
         return action_dist.proba_distribution(action_logits)
 
     def forward(
-        self, obs: torch.Tensor, deterministic: bool = False
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        self, obs: torch.Tensor, deterministic: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Forward pass with support for action masking.
 
         Args:
@@ -200,6 +203,7 @@ class MaskedBigTwoPolicy(ActorCriticPolicy):
 
         Returns:
             Tuple of (actions, values, log_probs)
+
         """
         features = self.extract_features(obs)
         latent_pi, latent_vf = self.mlp_extractor(features)
@@ -219,8 +223,8 @@ class MaskedBigTwoPolicy(ActorCriticPolicy):
         return actions, values, log_prob
 
     def evaluate_actions(
-        self, obs: torch.Tensor, actions: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        self, obs: torch.Tensor, actions: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Evaluate actions with masking support.
 
         Args:
@@ -229,6 +233,7 @@ class MaskedBigTwoPolicy(ActorCriticPolicy):
 
         Returns:
             Tuple of (values, log_probs, entropy)
+
         """
         features = self.extract_features(obs)
         latent_pi, latent_vf = self.mlp_extractor(features)
@@ -249,6 +254,7 @@ class MaskedBigTwoPolicy(ActorCriticPolicy):
 
         Returns:
             Masked categorical distribution
+
         """
         features = self.extract_features(obs)
         latent_pi, _ = self.mlp_extractor(features)
@@ -262,12 +268,13 @@ class MaskedBigTwoPolicy(ActorCriticPolicy):
 
         Returns:
             Value predictions
+
         """
         features = self.extract_features(obs)
         _, latent_vf = self.mlp_extractor(features)
         return self.value_net(latent_vf)
 
-    def set_action_mask(self, mask: Optional[torch.Tensor]):
+    def set_action_mask(self, mask: torch.Tensor | None):
         """Set action mask for the policy.
 
         This method allows external setting of action masks, which can be useful
@@ -275,10 +282,10 @@ class MaskedBigTwoPolicy(ActorCriticPolicy):
 
         Args:
             mask: Boolean tensor where True = valid action
+
         """
         # This is a placeholder - actual integration would depend on how
         # the training loop provides masks to the policy
-        pass
 
 
 class ActionMaskedPPOPolicy(MaskedBigTwoPolicy):
@@ -301,8 +308,8 @@ class ActionMaskedPPOPolicy(MaskedBigTwoPolicy):
         old_log_probs: torch.Tensor,
         advantages: torch.Tensor,
         returns: torch.Tensor,
-        masks: Optional[torch.Tensor] = None,
-    ) -> Dict[str, torch.Tensor]:
+        masks: torch.Tensor | None = None,
+    ) -> dict[str, torch.Tensor]:
         """Compute PPO loss with action masking.
 
         Args:
@@ -315,6 +322,7 @@ class ActionMaskedPPOPolicy(MaskedBigTwoPolicy):
 
         Returns:
             Dictionary with loss components
+
         """
         # Get current policy outputs
         values, log_probs, entropy = self.evaluate_actions(observations, actions)

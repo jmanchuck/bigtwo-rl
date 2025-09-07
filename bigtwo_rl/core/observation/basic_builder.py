@@ -1,6 +1,7 @@
 """Basic observation builder implementation."""
 
-from typing import List, Dict, Any
+from typing import Any
+
 import numpy as np
 
 from ..cards import rank_of, suit_of
@@ -9,8 +10,7 @@ from .observation_builder import ObservationBuilder
 
 
 class BasicObservationBuilder(ObservationBuilder):
-    """
-    Basic implementation of ObservationBuilder interface.
+    """Basic implementation of ObservationBuilder interface.
 
     Uses 168-bit observation vector:
     - 52 bits: current player's hand
@@ -39,7 +39,7 @@ class BasicObservationBuilder(ObservationBuilder):
 
         return hand_bits
 
-    def encode_last_play(self, last_played_cards: List[int], passes: int) -> np.ndarray:
+    def encode_last_play(self, last_played_cards: list[int], passes: int) -> np.ndarray:
         """Encode last play as 52-bit vector. All zeros if no last play or 3 passes."""
         play_bits = np.zeros(52, dtype=np.bool_)
 
@@ -57,7 +57,7 @@ class BasicObservationBuilder(ObservationBuilder):
         return play_bits
 
     def encode_game_state(
-        self, current_player: int, player_card_counts: List[int], passes: int, is_first_play: bool
+        self, current_player: int, player_card_counts: list[int], passes: int, is_first_play: bool,
     ) -> np.ndarray:
         """Encode game state as one-hot encoding of card counts + game flags (4×14 + 8 bits = 64 bits)."""
         # Card counts: 4 players × 14 possible counts (0-13 cards) = 56 bits
@@ -83,7 +83,7 @@ class BasicObservationBuilder(ObservationBuilder):
 
         return np.concatenate([card_count_bits, flag_bits])
 
-    def get_feature_info(self) -> Dict[str, Any]:
+    def get_feature_info(self) -> dict[str, Any]:
         return {
             "hand_features": {"size": 52, "description": "Binary presence of each card in current player's hand"},
             "last_play_features": {

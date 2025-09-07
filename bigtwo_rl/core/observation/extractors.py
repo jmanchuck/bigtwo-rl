@@ -1,7 +1,7 @@
 """Game state extraction utilities for observation builders."""
 
-from typing import Dict, List, Tuple, Any
 from dataclasses import dataclass
+from typing import Any
 
 from ..bigtwo import ToyBigTwoFullRules
 from ..game.types import Hand
@@ -12,9 +12,9 @@ class GameState:
     """Extracted game state data for observation builders."""
 
     current_player: int
-    player_hands: List[Hand]
-    player_card_counts: List[int]
-    last_played_cards: List[int]
+    player_hands: list[Hand]
+    player_card_counts: list[int]
+    last_played_cards: list[int]
     passes: int
     is_first_play: bool
     has_control: bool
@@ -25,8 +25,7 @@ class GameStateExtractor:
 
     @staticmethod
     def extract_game_state(game: ToyBigTwoFullRules, player_perspective: int = 0) -> GameState:
-        """
-        Extract game state from ToyBigTwoFullRules game object.
+        """Extract game state from ToyBigTwoFullRules game object.
 
         Args:
             game: ToyBigTwoFullRules game instance
@@ -34,6 +33,7 @@ class GameStateExtractor:
 
         Returns:
             GameState object with extracted information
+
         """
         return GameState(
             current_player=game.current_player,
@@ -46,9 +46,8 @@ class GameStateExtractor:
         )
 
     @staticmethod
-    def get_player_observation_data(game: ToyBigTwoFullRules, player_idx: int) -> Dict[str, Any]:
-        """
-        Get observation data for a specific player.
+    def get_player_observation_data(game: ToyBigTwoFullRules, player_idx: int) -> dict[str, Any]:
+        """Get observation data for a specific player.
 
         Args:
             game: ToyBigTwoFullRules game instance
@@ -56,6 +55,7 @@ class GameStateExtractor:
 
         Returns:
             Dictionary with data needed for observation builders
+
         """
         game_state = GameStateExtractor.extract_game_state(game, player_idx)
 
@@ -69,9 +69,8 @@ class GameStateExtractor:
         }
 
     @staticmethod
-    def get_relative_perspective(game: ToyBigTwoFullRules, player_idx: int) -> Dict[str, Any]:
-        """
-        Get game state from a specific player's relative perspective.
+    def get_relative_perspective(game: ToyBigTwoFullRules, player_idx: int) -> dict[str, Any]:
+        """Get game state from a specific player's relative perspective.
 
         Args:
             game: ToyBigTwoFullRules game instance
@@ -79,6 +78,7 @@ class GameStateExtractor:
 
         Returns:
             Dictionary with relative game state information
+
         """
         game_state = GameStateExtractor.extract_game_state(game)
 
@@ -105,18 +105,17 @@ class ObservationOrchestrator:
     """Orchestrator to manage observation generation for different players."""
 
     def __init__(self, observation_builder):
-        """
-        Initialize with an observation builder instance.
+        """Initialize with an observation builder instance.
 
         Args:
             observation_builder: Instance of ObservationBuilder or subclass
+
         """
         self.observation_builder = observation_builder
         self.extractor = GameStateExtractor()
 
     def get_observation(self, game: ToyBigTwoFullRules, player_idx: int):
-        """
-        Get observation for a specific player.
+        """Get observation for a specific player.
 
         Args:
             game: ToyBigTwoFullRules game instance
@@ -124,6 +123,7 @@ class ObservationOrchestrator:
 
         Returns:
             Observation vector for the specified player
+
         """
         obs_data = self.extractor.get_player_observation_data(game, player_idx)
 
@@ -137,8 +137,7 @@ class ObservationOrchestrator:
         )
 
     def get_relative_observation(self, game: ToyBigTwoFullRules, player_idx: int):
-        """
-        Get observation from a specific player's relative perspective.
+        """Get observation from a specific player's relative perspective.
 
         Args:
             game: ToyBigTwoFullRules game instance
@@ -146,6 +145,7 @@ class ObservationOrchestrator:
 
         Returns:
             Observation vector from player's relative perspective
+
         """
         obs_data = self.extractor.get_relative_perspective(game, player_idx)
 
@@ -159,18 +159,18 @@ class ObservationOrchestrator:
         )
 
     def get_all_player_observations(self, game: ToyBigTwoFullRules):
-        """
-        Get observations for all players.
+        """Get observations for all players.
 
         Args:
             game: ToyBigTwoFullRules game instance
 
         Returns:
             List of observation vectors, one for each player
+
         """
         return [self.get_observation(game, player_idx) for player_idx in range(4)]
 
-    def get_observation_info(self) -> Dict[str, Any]:
+    def get_observation_info(self) -> dict[str, Any]:
         """Get information about the observation builder being used."""
         return {
             "builder_type": type(self.observation_builder).__name__,

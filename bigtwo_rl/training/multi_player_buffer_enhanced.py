@@ -7,12 +7,11 @@ Big Two PPO implementation. Key features:
 - Marks those transitions as terminal for proper GAE computation
 """
 
-import numpy as np
 from collections import deque
-from typing import Generator, Optional, Union, List
-from stable_baselines3.common.buffers import RolloutBuffer
-from stable_baselines3.common.vec_env import VecNormalize
+
+import numpy as np
 import torch as th
+from stable_baselines3.common.buffers import RolloutBuffer
 
 
 class MultiPlayerRolloutBuffer(RolloutBuffer):
@@ -31,7 +30,7 @@ class MultiPlayerRolloutBuffer(RolloutBuffer):
         buffer_size: int,
         observation_space,
         action_space,
-        device: Union[th.device, str] = "auto",
+        device: th.device | str = "auto",
         gae_lambda: float = 1,
         gamma: float = 0.99,
         n_envs: int = 1,
@@ -61,7 +60,7 @@ class MultiPlayerRolloutBuffer(RolloutBuffer):
         episode_start: np.ndarray,
         value: th.Tensor,
         log_prob: th.Tensor,
-        current_player: Optional[Union[int, np.ndarray]] = None,
+        current_player: int | np.ndarray | None = None,
     ) -> None:
         """Add a step to the buffer with immediate reward assignment for game-ending rewards.
 
@@ -74,6 +73,7 @@ class MultiPlayerRolloutBuffer(RolloutBuffer):
         Args:
             obs, action, reward, episode_start, value, log_prob: Standard SB3 buffer inputs
             current_player: Which player made the move (0-3), or array for multi-env
+
         """
         # STEP 1: Always add current step to buffer first (even if game ended)
         # This ensures we have the complete game state before reward assignment
@@ -101,7 +101,7 @@ class MultiPlayerRolloutBuffer(RolloutBuffer):
         episode_start: np.ndarray,
         value: th.Tensor,
         log_prob: th.Tensor,
-        current_player: Optional[Union[int, np.ndarray]] = None,
+        current_player: int | np.ndarray | None = None,
     ) -> None:
         """Add a normal step (not game-ending) to the buffer.
 
@@ -145,7 +145,7 @@ class MultiPlayerRolloutBuffer(RolloutBuffer):
         else:
             self.player_who_moved[current_pos] = current_player
 
-    def _assign_final_game_rewards_immediately(self, game_rewards: Union[List, np.ndarray], env_idx: int) -> None:
+    def _assign_final_game_rewards_immediately(self, game_rewards: list | np.ndarray, env_idx: int) -> None:
         """CRITICAL: Assign rewards to exactly 4 transitions per player, immediately.
 
         This exactly matches reference implementation (lines 111-114):
@@ -162,6 +162,7 @@ class MultiPlayerRolloutBuffer(RolloutBuffer):
         Args:
             game_rewards: Array of rewards for all 4 players [r0, r1, r2, r3]
             env_idx: Environment index
+
         """
         if len(game_rewards) != 4:
             return

@@ -1,22 +1,21 @@
 """Training callbacks for Big Two agents."""
 
 import traceback
-from typing import Dict, Any
+
 from stable_baselines3.common.callbacks import BaseCallback
 
 
 class BigTwoMetricsCallback(BaseCallback):
-    """
-    Callback to log Big Two-specific training metrics to TensorBoard.
+    """Callback to log Big Two-specific training metrics to TensorBoard.
 
     Automatically detects episode completions and logs game performance,
     strategy usage, and opponent comparison metrics.
     """
 
     def __init__(self, verbose: int = 0):
-        """
-        Args:
-            verbose: Verbosity level (0 = quiet, 1 = info)
+        """Args:
+        verbose: Verbosity level (0 = quiet, 1 = info)
+
         """
         super().__init__(verbose)
 
@@ -83,6 +82,6 @@ class BigTwoMetricsCallback(BaseCallback):
                 # No Big Two metrics found in episode info
                 pass
 
-        except Exception as e:
+        except Exception:
             # Failed to log Big Two metrics
             traceback.print_exc()

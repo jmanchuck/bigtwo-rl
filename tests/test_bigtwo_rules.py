@@ -1,9 +1,10 @@
 """Unit tests for Big Two game rules enforcement."""
 
-import pytest
-import numpy as np
-import sys
 import os
+import sys
+
+import numpy as np
+import pytest
 
 # Add project root to path for tests
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

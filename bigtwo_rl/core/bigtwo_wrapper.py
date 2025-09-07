@@ -4,8 +4,7 @@ This wrapper provides a clean interface for training RL agents on Big Two with
 a fixed action space of exactly 1,365 actions and proper action masking.
 """
 
-import inspect
-from typing import Any, List
+from typing import Any
 
 import gymnasium as gym
 import numpy as np
@@ -16,7 +15,6 @@ from bigtwo_rl.training.rewards.base_reward import BaseReward
 from .action import ActionMaskBuilder
 from .bigtwo import ToyBigTwoFullRules
 from .episode_manager import EpisodeManager
-
 
 NUM_PLAYERS = 4
 
@@ -209,7 +207,7 @@ class BigTwoWrapper(gym.Env):
                 "done": self.game.done,
                 "info": {},
                 "legal_moves_count": np.sum(self.get_action_mask()),
-            }
+            },
         )
 
         # Handle game/episode completion
@@ -350,7 +348,7 @@ class BigTwoWrapper(gym.Env):
 
     # Move tracking methods removed - simplified architecture
 
-    def _translate_action_to_game_move(self, action_id: int, player_idx: int) -> List[int]:
+    def _translate_action_to_game_move(self, action_id: int, player_idx: int) -> list[int]:
         """Translate action ID to slot indices for Hand API.
 
         Args:

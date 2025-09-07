@@ -1,8 +1,8 @@
 """Base agent interface for Big Two agents."""
 
 from abc import ABC, abstractmethod
+
 import numpy as np
-from typing import Optional
 
 
 class BaseAgent(ABC):
@@ -14,9 +14,8 @@ class BaseAgent(ABC):
         self.games_played = 0
 
     @abstractmethod
-    def get_action(self, observation: np.ndarray, action_mask: Optional[np.ndarray] = None) -> int:
-        """
-        Get action from agent given observation.
+    def get_action(self, observation: np.ndarray, action_mask: np.ndarray | None = None) -> int:
+        """Get action from agent given observation.
 
         Args:
             observation: Environment observation
@@ -24,13 +23,12 @@ class BaseAgent(ABC):
 
         Returns:
             int: Action index
+
         """
-        pass
 
     @abstractmethod
     def reset(self) -> None:
         """Reset agent state for new game/episode."""
-        pass
 
     def record_game_result(self, won: bool):
         """Record result of a game."""

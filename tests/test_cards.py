@@ -1,6 +1,7 @@
 """Test card encoding/decoding."""
 
 import numpy as np
+
 from bigtwo_rl.core.card_utils import (
     array_from_card_indices,
     card_indices_from_array,
@@ -9,8 +10,8 @@ from bigtwo_rl.core.card_utils import (
     format_hand_array,
     hand_array_to_strings,
     parse_move_input,
-    strings_to_hand_array,
     string_to_card,
+    strings_to_hand_array,
 )
 
 

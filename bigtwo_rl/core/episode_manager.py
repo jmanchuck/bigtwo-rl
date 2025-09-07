@@ -1,7 +1,5 @@
 """Episode management for multi-game Big Two RL training sessions."""
 
-import numpy as np
-from typing import Dict, Any, Optional, List, Tuple
 
 
 class EpisodeManager:
@@ -23,6 +21,7 @@ class EpisodeManager:
             games_per_episode: Number of games per training episode
             num_players: Number of players in each game
             controlled_player: Index of the player being trained
+
         """
         self.games_per_episode = games_per_episode
         self.num_players = num_players
@@ -38,7 +37,7 @@ class EpisodeManager:
         # Big Two metrics tracking
         self._episode_steps = 0
         self._move_counts = {"singles": 0, "pairs": 0, "five_cards": 0}
-        self._final_positions: List[int] = []  # Rankings across games in episode
+        self._final_positions: list[int] = []  # Rankings across games in episode
         self._total_opponent_cards = 0  # For advantage calculation
 
     def reset_episode(self) -> None:
@@ -63,7 +62,7 @@ class EpisodeManager:
         """Add a move bonus to the accumulated episode total."""
         self._accumulated_move_bonuses += bonus
 
-    def track_move_type(self, move_cards: List[int]) -> None:
+    def track_move_type(self, move_cards: list[int]) -> None:
         """Track the type of move made for strategy metrics."""
         move_count = len(move_cards)
         if move_count == 1:
@@ -73,7 +72,7 @@ class EpisodeManager:
         elif move_count == 5:
             self._move_counts["five_cards"] += 1
 
-    def handle_game_end(self, all_cards_left: List[int]) -> Tuple[int, bool]:
+    def handle_game_end(self, all_cards_left: list[int]) -> tuple[int, bool]:
         """Process end-of-game bookkeeping and return winner and controlled player position.
 
         Args:
@@ -81,6 +80,7 @@ class EpisodeManager:
 
         Returns:
             Tuple of (winner_player_index, controlled_player_won)
+
         """
         self.games_played += 1
 
@@ -127,6 +127,7 @@ class EpisodeManager:
 
         Returns:
             Total episode bonus including accumulated move bonuses
+
         """
         episode_bonus = 0.0
 
@@ -142,11 +143,12 @@ class EpisodeManager:
         total_bonus = episode_bonus + self._accumulated_move_bonuses
         return total_bonus
 
-    def get_episode_metrics(self) -> Dict[str, float]:
+    def get_episode_metrics(self) -> dict[str, float]:
         """Get Big Two-specific metrics for the completed episode.
 
         Returns:
             Dictionary of episode metrics for logging/analysis
+
         """
         if self.games_played == 0:
             return {}

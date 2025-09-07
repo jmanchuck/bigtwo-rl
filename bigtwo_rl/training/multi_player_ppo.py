@@ -6,18 +6,18 @@ This module provides an enhanced PPO implementation that integrates:
 - Reference-compatible training loop
 """
 
-import torch as th
+from typing import Any
+
 import numpy as np
-from typing import Optional, Union, Dict, Any, Type, Callable
+import torch as th
+from gymnasium import spaces
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
-from stable_baselines3.common.type_aliases import GymEnv, Schedule
 from stable_baselines3.common.policies import BasePolicy
-from stable_baselines3.common.utils import explained_variance
-from gymnasium import spaces
+from stable_baselines3.common.type_aliases import GymEnv, Schedule
 
-from .multi_player_buffer_enhanced import MultiPlayerRolloutBuffer
 from .callbacks import MultiPlayerGAECallback
+from .multi_player_buffer_enhanced import MultiPlayerRolloutBuffer
 
 
 class MultiPlayerPPO(PPO):
@@ -34,37 +34,38 @@ class MultiPlayerPPO(PPO):
 
     def __init__(
         self,
-        policy: Union[str, Type[BasePolicy]],
-        env: Union[GymEnv, str],
-        learning_rate: Union[float, Schedule] = 3e-4,
+        policy: str | type[BasePolicy],
+        env: GymEnv | str,
+        learning_rate: float | Schedule = 3e-4,
         n_steps: int = 2048,
-        batch_size: Optional[int] = None,
+        batch_size: int | None = None,
         n_epochs: int = 10,
         gamma: float = 0.99,
         gae_lambda: float = 0.95,
-        clip_range: Union[float, Schedule] = 0.2,
-        clip_range_vf: Optional[Union[float, Schedule]] = None,
+        clip_range: float | Schedule = 0.2,
+        clip_range_vf: float | Schedule | None = None,
         normalize_advantage: bool = True,
         ent_coef: float = 0.0,
         vf_coef: float = 0.5,
         max_grad_norm: float = 0.5,
         use_sde: bool = False,
         sde_sample_freq: int = -1,
-        rollout_buffer_class: Optional[Type[MultiPlayerRolloutBuffer]] = None,
-        rollout_buffer_kwargs: Optional[Dict[str, Any]] = None,
-        target_kl: Optional[float] = None,
+        rollout_buffer_class: type[MultiPlayerRolloutBuffer] | None = None,
+        rollout_buffer_kwargs: dict[str, Any] | None = None,
+        target_kl: float | None = None,
         stats_window_size: int = 100,
-        tensorboard_log: Optional[str] = None,
-        policy_kwargs: Optional[Dict[str, Any]] = None,
+        tensorboard_log: str | None = None,
+        policy_kwargs: dict[str, Any] | None = None,
         verbose: int = 0,
-        seed: Optional[int] = None,
-        device: Union[th.device, str] = "auto",
+        seed: int | None = None,
+        device: th.device | str = "auto",
         _init_setup_model: bool = True,
     ):
         """Initialize MultiPlayerPPO.
 
         Args:
             All other args: Same as stable-baselines3 PPO
+
         """
         if rollout_buffer_class is None:
             rollout_buffer_class = MultiPlayerRolloutBuffer
@@ -144,7 +145,7 @@ class MultiPlayerPPO(PPO):
                     buffer_stats = self.rollout_buffer.get_statistics()
                     self.logger.record("multiPlayer/games_completed", buffer_stats["games_completed"])
                     self.logger.record(
-                        "multiPlayer/immediate_rewards_assigned", buffer_stats["immediate_rewards_assigned"]
+                        "multiPlayer/immediate_rewards_assigned", buffer_stats["immediate_rewards_assigned"],
                     )
 
     def collect_rollouts(
@@ -258,11 +259,12 @@ class MultiPlayerPPO(PPO):
 
         return True
 
-    def get_multi_player_statistics(self) -> Dict[str, Any]:
+    def get_multi_player_statistics(self) -> dict[str, Any]:
         """Get multi-player specific training statistics.
 
         Returns:
             Dictionary with multi-player training metrics
+
         """
         stats = {}
 
@@ -335,7 +337,7 @@ class MultiPlayerPPO(PPO):
 
     @classmethod
     def load(
-        cls, path, env=None, device="auto", custom_objects=None, print_system_info=False, force_reset=True, **kwargs
+        cls, path, env=None, device="auto", custom_objects=None, print_system_info=False, force_reset=True, **kwargs,
     ):
         """Load MultiPlayerPPO model."""
         # Try to load metadata first to get hyperparameters
@@ -344,7 +346,7 @@ class MultiPlayerPPO(PPO):
         try:
             import json
 
-            with open(metadata_path, "r") as f:
+            with open(metadata_path) as f:
                 metadata = json.load(f)
             saved_hyperparams = metadata.get("hyperparams", {})
             # MultiPlayerPPO metadata loaded

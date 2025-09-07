@@ -1,10 +1,12 @@
 """Human agent that provides interactive gameplay through console interface."""
 
 import sys
+from typing import Any
+
 import numpy as np
-from typing import Optional, Any
+
+from ..core.card_utils import format_hand_array, hand_array_to_strings, hand_to_strings
 from .base_agent import BaseAgent
-from ..core.card_utils import hand_array_to_strings, format_hand_array, hand_to_strings
 
 
 class HumanAgent(BaseAgent):
@@ -15,7 +17,7 @@ class HumanAgent(BaseAgent):
         self.env = None  # Will be set via set_env_reference()
         self.move_history = []  # Track recent moves for display
 
-    def get_action(self, observation: np.ndarray, action_mask: Optional[np.ndarray] = None) -> int:
+    def get_action(self, observation: np.ndarray, action_mask: np.ndarray | None = None) -> int:
         """Get action from human player via console interface."""
         if self.env is None:
             raise RuntimeError("HumanAgent requires env reference via set_env_reference()")
@@ -44,12 +46,11 @@ class HumanAgent(BaseAgent):
                         is_legal = self.env.env.last_play is not None  # Can only pass if there's a last play
                     else:
                         is_legal = self.env.env._beats(move)
+                # List format
+                elif len(move) == 0:  # Pass move
+                    is_legal = self.env.env.last_play is not None
                 else:
-                    # List format
-                    if len(move) == 0:  # Pass move
-                        is_legal = self.env.env.last_play is not None
-                    else:
-                        is_legal = self.env.env._beats(move)
+                    is_legal = self.env.env._beats(move)
 
                 if is_legal:
                     legal_moves.append((action_idx, move))
@@ -66,7 +67,7 @@ class HumanAgent(BaseAgent):
                         last_cards = hand_array_to_strings(self.env.env.last_play[0])
                         print(f"   Must beat: {' '.join(last_cards)}")
                     else:
-                        print(f"   Starting new trick")
+                        print("   Starting new trick")
             # Skip action indices that are out of bounds (shouldn't happen with proper action mask)
 
         # Display legal moves to user
@@ -77,7 +78,7 @@ class HumanAgent(BaseAgent):
 
     def reset(self) -> None:
         """Reset agent state for new game."""
-        pass  # Nothing to reset for human agent
+        # Nothing to reset for human agent
 
     def set_env_reference(self, env: Any) -> None:
         """Store environment reference for accessing game state."""
@@ -139,7 +140,7 @@ class HumanAgent(BaseAgent):
         # Hand sizes for all players
         hand_sizes = [np.sum(hand) for hand in self.env.env.hands]
         print(
-            f"Hand sizes: YOU={hand_sizes[0]}, Agent1={hand_sizes[1]}, Agent2={hand_sizes[2]}, Agent3={hand_sizes[3]}"
+            f"Hand sizes: YOU={hand_sizes[0]}, Agent1={hand_sizes[1]}, Agent2={hand_sizes[2]}, Agent3={hand_sizes[3]}",
         )
 
         # Show human player's hand
@@ -234,8 +235,7 @@ class HumanAgent(BaseAgent):
                             print(f"✅ You chose: {cards_str}")
 
                         return action_idx
-                    else:
-                        print(f"❌ Invalid choice. Please enter a number between 0 and {len(legal_moves) - 1}")
+                    print(f"❌ Invalid choice. Please enter a number between 0 and {len(legal_moves) - 1}")
 
                 except ValueError:
                     print("❌ Please enter a valid number (or 'quit' to exit)")

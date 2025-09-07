@@ -1,13 +1,22 @@
 """Tests for action space functionality."""
 
 import pytest
-import numpy as np
+
 from bigtwo_rl.core.action import (
-    ActionMaskBuilder, BitsetFiveCardEngine, action_to_tuple,
-    OFF_PASS, OFF_1, OFF_2, OFF_3, OFF_5, N_ACTIONS,
-    PAIR_LUT, TRIPLE_LUT, PAIR_ID, TRIPLE_ID
+    N_ACTIONS,
+    OFF_1,
+    OFF_2,
+    OFF_3,
+    OFF_5,
+    OFF_PASS,
+    PAIR_ID,
+    PAIR_LUT,
+    TRIPLE_ID,
+    ActionMaskBuilder,
+    BitsetFiveCardEngine,
+    action_to_tuple,
 )
-from bigtwo_rl.core.game import Hand, HandType, LastFive
+from bigtwo_rl.core.game import Hand, HandType
 
 
 class TestActionToTuple:
@@ -78,7 +87,7 @@ class TestActionMaskBuilder:
         # Hand with just 3♦ (encoded as 0)
         hand = self.create_test_hand([0])
         ids = self.masker.single_and_multiples(hand)
-        
+
         # Should have exactly one single action
         single_actions = [id for id in ids if OFF_1 <= id < OFF_2]
         assert len(single_actions) == 1
@@ -86,11 +95,11 @@ class TestActionMaskBuilder:
 
     def test_pair_actions(self):
         """Test pair action generation."""
-        # Hand with pair of 3s: 3♦ (0) and 3♣ (1)  
+        # Hand with pair of 3s: 3♦ (0) and 3♣ (1)
         # Note: rank<<2|suit encoding: 3♦=0, 3♣=1, 3♥=2, 3♠=3
         hand = self.create_test_hand([0, 1])  # Both rank=0, different suits
         ids = self.masker.single_and_multiples(hand)
-        
+
         # Should have singles and one pair
         pair_actions = [id for id in ids if OFF_2 <= id < OFF_3]
         assert len(pair_actions) >= 1
@@ -100,10 +109,10 @@ class TestActionMaskBuilder:
         # Hand with 3♦ and other cards
         hand = self.create_test_hand([0, 4, 8, 12, 16])  # 3♦, 3♣, 4♦, 4♣, 5♦
         ids = self.masker._first_play_mask(hand)
-        
+
         # All returned actions should be valid
         assert all(0 <= id < N_ACTIONS for id in ids)
-        
+
         # Should include at least the 3♦ single
         single_3d = OFF_1 + 0  # 3♦ is at slot 0
         assert single_3d in ids
@@ -113,7 +122,7 @@ class TestActionMaskBuilder:
         # Hand without 3♦
         hand = self.create_test_hand([4, 8, 12, 16, 20])
         ids = self.masker._first_play_mask(hand)
-        
+
         # Should return no actions since 3♦ is required
         assert len(ids) == 0
 
@@ -121,7 +130,7 @@ class TestActionMaskBuilder:
         """Test first play when 3♦ is already played."""
         hand = self.create_test_hand([0, 4], [1, 0])  # 3♦ played, 3♣ available
         ids = self.masker._first_play_mask(hand)
-        
+
         # Should return no actions since 3♦ is required but played
         assert len(ids) == 0
 
@@ -133,12 +142,12 @@ class TestActionMaskBuilder:
             last_played_cards=None,
             pass_allowed=False,
             is_first_play=True,
-            has_control=False
+            has_control=False,
         )
-        
+
         # Should not include pass action (not allowed)
         assert OFF_PASS not in ids
-        
+
         # Should have some actions (at least 3♦ single)
         assert len(ids) > 0
         assert all(0 <= id < N_ACTIONS for id in ids)
@@ -151,20 +160,20 @@ class TestActionMaskBuilder:
             last_played_cards=None,
             pass_allowed=True,
             is_first_play=False,
-            has_control=True
+            has_control=True,
         )
-        
+
         # Should include pass action
         assert OFF_PASS in ids
 
     def test_last_play_constraints(self):
         """Test that actions respect last play constraints."""
         hand = self.create_test_hand([0, 4, 8, 12, 16])  # Mix of cards
-        
+
         # Test with single last play - should only allow stronger singles
         last_key = (1, 0)  # 4♦ (rank=1, suit=0)
         ids = self.masker.single_and_multiples(hand, HandType.SINGLE, last_key)
-        
+
         # Check that returned singles are stronger than (1, 0)
         single_actions = [id for id in ids if OFF_1 <= id < OFF_2]
         for action_id in single_actions:
@@ -198,7 +207,7 @@ class TestEngines:
         """Test engine with empty hand."""
         engine = BitsetFiveCardEngine()
         hand = Hand(card=[0] * 13, played=[1] * 13)  # All cards played
-        
+
         # Should generate no combinations
         combinations = list(engine.generate(hand, None))
         assert len(combinations) == 0
@@ -206,16 +215,16 @@ class TestEngines:
     def test_engine_generate_full_hand(self):
         """Test engine with full hand."""
         engine = BitsetFiveCardEngine()
-        
+
         # Create hand with 13 different cards
         cards = list(range(13))  # Different card codes
         hand = Hand(card=cards, played=[0] * 13)
         hand.build_derived()
-        
+
         # Should generate some five-card combinations
         combinations = list(engine.generate(hand, None))
         assert len(combinations) > 0
-        
+
         # Each combination should have 5 distinct slots
         for combo in combinations[:10]:  # Test first 10
             assert len(combo) == 5

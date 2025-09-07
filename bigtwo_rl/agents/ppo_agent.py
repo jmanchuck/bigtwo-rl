@@ -1,8 +1,9 @@
 """PPO agent for fixed 1,365-action space Big Two."""
 
-import numpy as np
-from typing import Optional, Any
 from pathlib import Path
+from typing import Any
+
+import numpy as np
 
 from .base_agent import BaseAgent
 
@@ -32,6 +33,7 @@ class PPOAgent(BaseAgent):
             model_path: Path to trained PPO model (.zip file)
             name: Agent name for identification
             deterministic: Whether to use deterministic policy (exploitation)
+
         """
         super().__init__(name)
 
@@ -61,13 +63,13 @@ class PPOAgent(BaseAgent):
                 if self.model.action_space.n != expected_action_space:
                     print(
                         f"⚠️  Warning: Model action space is {self.model.action_space.n}, "
-                        f"expected {expected_action_space}"
+                        f"expected {expected_action_space}",
                     )
 
         except Exception as e:
             raise RuntimeError(f"Failed to load PPO model: {e}")
 
-    def get_action(self, observation: np.ndarray, action_mask: Optional[np.ndarray] = None) -> int:
+    def get_action(self, observation: np.ndarray, action_mask: np.ndarray | None = None) -> int:
         """Get action from PPO policy with action masking.
 
         Args:
@@ -76,6 +78,7 @@ class PPOAgent(BaseAgent):
 
         Returns:
             Action ID from 0-1364
+
         """
         if self.model is None:
             raise RuntimeError("Model not loaded")
@@ -139,9 +142,8 @@ class PPOAgent(BaseAgent):
 
         PPO agent has no internal state to reset.
         """
-        pass
 
-    def get_action_distribution(self, observation: np.ndarray, action_mask: Optional[np.ndarray] = None) -> np.ndarray:
+    def get_action_distribution(self, observation: np.ndarray, action_mask: np.ndarray | None = None) -> np.ndarray:
         """Get action probability distribution from PPO policy.
 
         Args:
@@ -150,6 +152,7 @@ class PPOAgent(BaseAgent):
 
         Returns:
             Probability distribution over actions
+
         """
         if self.model is None:
             raise RuntimeError("Model not loaded")
@@ -191,12 +194,11 @@ class PPOAgent(BaseAgent):
                 if len(legal_actions) > 0:
                     uniform_probs[legal_actions] = 1.0 / len(legal_actions)
                 return uniform_probs
-            else:
-                return np.ones(1365) / 1365
+            return np.ones(1365) / 1365
 
 
 # Convenience function for creating PPO agents
-def load_ppo_agent(model_path: str, name: Optional[str] = None, deterministic: bool = True) -> PPOAgent:
+def load_ppo_agent(model_path: str, name: str | None = None, deterministic: bool = True) -> PPOAgent:
     """Load a trained PPO agent from file.
 
     Args:
@@ -206,6 +208,7 @@ def load_ppo_agent(model_path: str, name: Optional[str] = None, deterministic: b
 
     Returns:
         Loaded PPOAgent instance
+
     """
     if name is None:
         name = Path(model_path).stem

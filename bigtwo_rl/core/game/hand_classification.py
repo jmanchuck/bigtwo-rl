@@ -1,13 +1,11 @@
 """Hand classification logic for Big Two."""
 
-from typing import List, Tuple
 
-from .types import HandType, STRAIGHT_WINDOWS
+from .types import STRAIGHT_WINDOWS, HandType
 
 
-def compute_key_and_hand_type(encoded_cards: List[int]) -> Tuple[Tuple, HandType]:
-    """
-    Compute comparison key and hand type from encoded cards - optimized for speed.
+def compute_key_and_hand_type(encoded_cards: list[int]) -> tuple[tuple, HandType]:
+    """Compute comparison key and hand type from encoded cards - optimized for speed.
 
     Returns:
         - Single: (rank, suit)
@@ -17,6 +15,7 @@ def compute_key_and_hand_type(encoded_cards: List[int]) -> Tuple[Tuple, HandType
 
     Raises:
         ValueError: For invalid hands
+
     """
     n = len(encoded_cards)
 
@@ -25,7 +24,7 @@ def compute_key_and_hand_type(encoded_cards: List[int]) -> Tuple[Tuple, HandType
         c = encoded_cards[0]
         return (c >> 2, c & 3), HandType.SINGLE
 
-    elif n == 2:
+    if n == 2:
         # Pair: check ranks match, return (rank, highest_suit)
         c1, c2 = encoded_cards
         r1, r2 = c1 >> 2, c2 >> 2
@@ -34,7 +33,7 @@ def compute_key_and_hand_type(encoded_cards: List[int]) -> Tuple[Tuple, HandType
             raise ValueError("Pair ranks don't match")
         return (r1, max(s1, s2)), HandType.PAIR
 
-    elif n == 3:
+    if n == 3:
         # Triple: check all ranks match
         c1, c2, c3 = encoded_cards
         r1, r2, r3 = c1 >> 2, c2 >> 2, c3 >> 2
@@ -42,14 +41,14 @@ def compute_key_and_hand_type(encoded_cards: List[int]) -> Tuple[Tuple, HandType
             raise ValueError("Triple ranks don't match")
         return (r1,), HandType.TRIPLE
 
-    elif n == 5:
+    if n == 5:
         # Five-card: fast classification
         return _classify_five_fast(encoded_cards)
 
     raise ValueError(f"Invalid hand size: {n}")
 
 
-def _classify_five_fast(cards: List[int]) -> Tuple[Tuple, HandType]:
+def _classify_five_fast(cards: list[int]) -> tuple[tuple, HandType]:
     """Fast five-card classification avoiding function calls."""
     # Extract ranks and suits using bitwise ops
     rs = [c >> 2 for c in cards]
@@ -103,7 +102,7 @@ def _classify_five_fast(cards: List[int]) -> Tuple[Tuple, HandType]:
     raise ValueError("Invalid five-card hand")
 
 
-def classify_five(card: List[int], slots: Tuple[int, int, int, int, int]) -> Tuple[HandType, Tuple]:
+def classify_five(card: list[int], slots: tuple[int, int, int, int, int]) -> tuple[HandType, tuple]:
     """Classify a five-card hand from card codes and slot indices."""
     encoded_cards = [card[i] for i in slots]
     key, hand_type = compute_key_and_hand_type(encoded_cards)

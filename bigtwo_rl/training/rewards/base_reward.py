@@ -1,7 +1,6 @@
 """Base reward class for Big Two training experiments."""
 
 from abc import ABC, abstractmethod
-from typing import List, Optional
 
 
 class BaseReward(ABC):
@@ -13,10 +12,9 @@ class BaseReward(ABC):
         winner_player: int,
         player_idx: int,
         cards_left: int,
-        all_cards_left: Optional[List[int]] = None,
+        all_cards_left: list[int] | None = None,
     ) -> float:
-        """
-        Calculate immediate reward for a player after each game completion.
+        """Calculate immediate reward for a player after each game completion.
 
         Args:
             winner_player: Index of winning player
@@ -26,13 +24,12 @@ class BaseReward(ABC):
 
         Returns:
             float: Immediate reward value
+
         """
-        pass
 
     @abstractmethod
     def episode_bonus(self, games_won: int, total_games: int, avg_cards_left: float) -> float:
-        """
-        Calculate bonus reward at episode end based on overall performance.
+        """Calculate bonus reward at episode end based on overall performance.
 
         Args:
             games_won: Number of games won in this episode
@@ -41,17 +38,17 @@ class BaseReward(ABC):
 
         Returns:
             float: Episode bonus reward
-        """
-        pass
 
-    def move_bonus(self, move_cards: List[int]) -> float:
         """
-        Calculate bonus reward for individual moves based on complexity.
+
+    def move_bonus(self, move_cards: list[int]) -> float:
+        """Calculate bonus reward for individual moves based on complexity.
 
         Args:
             move_cards: List of card indices that were played
 
         Returns:
             float: Move bonus reward (0.0 for most reward functions)
+
         """
         return 0.0

@@ -3,16 +3,16 @@
 from .base_reward import BaseReward
 from .move_quality_reward_optimized import MoveQualityRewardOptimized
 from .sparse_rewards import (
-    DefaultReward,
-    SparseReward,
     AggressivePenaltyReward,
+    DefaultReward,
     ProgressiveReward,
     RankingReward,
     ScoreMarginReward,
+    SparseReward,
 )
 from .strategic_rewards import (
-    StrategicReward,
     ComplexMoveReward,
+    StrategicReward,
 )
 from .zero_sum_reward import ZeroSumReward
 

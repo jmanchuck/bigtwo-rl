@@ -1,9 +1,8 @@
 """Big Two game logic and types."""
 
-from .types import Action, HandType, LastFive, Hand, FiveCardEngine, STRAIGHT_WINDOWS
-
 # BigTwo class removed - use ToyBigTwoFullRules from ..bigtwo instead
-from .hand_classification import compute_key_and_hand_type, classify_five
+from .hand_classification import classify_five, compute_key_and_hand_type
+from .types import STRAIGHT_WINDOWS, Action, FiveCardEngine, Hand, HandType, LastFive
 
 __all__ = [
     # Types

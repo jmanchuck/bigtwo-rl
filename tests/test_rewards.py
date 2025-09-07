@@ -30,17 +30,16 @@ def test_reward_structure():
             cards_left = np.sum(env.hands[p])
             if p == winner:
                 rewards[p] = 100
+            elif cards_left >= 10:
+                rewards[p] = -50
+            elif cards_left >= 5:
+                rewards[p] = -10
+            elif cards_left >= 3:
+                rewards[p] = -2
+            elif cards_left >= 1:
+                rewards[p] = 0
             else:
-                if cards_left >= 10:
-                    rewards[p] = -50
-                elif cards_left >= 5:
-                    rewards[p] = -10
-                elif cards_left >= 3:
-                    rewards[p] = -2
-                elif cards_left >= 1:
-                    rewards[p] = 0
-                else:
-                    rewards[p] = 100
+                rewards[p] = 100
 
         print(f"{description}")
         print(f"Hand sizes: {hand_sizes}")

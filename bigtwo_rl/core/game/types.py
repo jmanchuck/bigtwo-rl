@@ -1,9 +1,10 @@
 """Game-specific types and data structures for Big Two."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import List, Tuple, Optional, Protocol
 from enum import Enum
+from typing import Protocol
 
 from ..cards import rank_of, suit_of
 
@@ -54,7 +55,7 @@ class LastFive:
     """Represents the last played five-card hand for comparison."""
 
     hand_type: HandType
-    key: Tuple  # comparison key within category
+    key: tuple  # comparison key within category
 
 
 @dataclass
@@ -67,23 +68,23 @@ class Hand:
     Derived fields are rebuilt only when needed via build_derived().
     """
 
-    card: List[int]
-    played: List[int]
+    card: list[int]
+    played: list[int]
 
     # Derived fields (rebuilt by build_derived())
-    rank_cnt: List[int] = None
-    rank_suits_mask: List[int] = None
-    suit_cnt: List[int] = None
-    suit_rank_bits: List[int] = None
+    rank_cnt: list[int] = None
+    rank_suits_mask: list[int] = None
+    suit_cnt: list[int] = None
+    suit_rank_bits: list[int] = None
     rank_any_bits: int = 0
-    slot_of: List[List[int]] = None  # [rank][suit] -> slot or -1
+    slot_of: list[list[int]] = None  # [rank][suit] -> slot or -1
     _derived_built: bool = False
 
     def build_derived(self) -> None:
         """Rebuild derived fields from current card/played state."""
         if self._derived_built:
             return
-            
+
         self.rank_cnt = [0] * 13
         self.rank_suits_mask = [0] * 13
         self.suit_cnt = [0] * 4
@@ -101,9 +102,9 @@ class Hand:
             self.suit_rank_bits[s] |= 1 << r
             self.rank_any_bits |= 1 << r
             self.slot_of[r][s] = i
-            
+
         self._derived_built = True
-        
+
     def invalidate_derived(self) -> None:
         """Mark derived state as needing rebuild after hand changes."""
         self._derived_built = False
@@ -112,15 +113,15 @@ class Hand:
 class FiveCardEngine(Protocol):
     """Protocol for five-card hand generation engines."""
 
-    def generate(self, hand: Hand, last: Optional[LastFive]) -> List[Tuple[int, int, int, int, int]]:
+    def generate(self, hand: Hand, last: LastFive | None) -> list[tuple[int, int, int, int, int]]:
         """Return 5-tuples of slot indices (i<j<k<l<m) that are legal and beat `last` (if provided)."""
         ...
 
 
 # Straight windows for game logic (no 2 in straights)
 # 8 windows starting at ranks 3..10 → indices 0..7
-STRAIGHT_WINDOWS: List[int] = []
-for start in range(0, 8):  # 0..7 represent ranks 3..10
+STRAIGHT_WINDOWS: list[int] = []
+for start in range(8):  # 0..7 represent ranks 3..10
     mask = 0
     for dr in range(5):
         mask |= 1 << (start + dr)

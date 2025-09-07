@@ -1,10 +1,10 @@
 """Five-card hand generation engines for Big Two."""
 
 from __future__ import annotations
-from typing import List, Tuple, Optional
 
 from bigtwo_rl.core.cards import RANKS, SUITS, rank_of
-from bigtwo_rl.core.game.types import Hand, LastFive, FiveCardEngine, HandType, STRAIGHT_WINDOWS
+from bigtwo_rl.core.game.types import STRAIGHT_WINDOWS, Hand, HandType, LastFive
+
 from .utils import _choose_k, _next_comb
 
 
@@ -13,9 +13,9 @@ class BitsetFiveCardEngine:
     If `last` is provided, only emit 5-card hands that beat it (hand_type >= last.hand_type and key > last.key in same category).
     """
 
-    def generate(self, hand: Hand, last: LastFive | None) -> List[Tuple[int, int, int, int, int]]:
+    def generate(self, hand: Hand, last: LastFive | None) -> list[tuple[int, int, int, int, int]]:
         hand.build_derived()
-        out: List[Tuple[int, int, int, int, int]] = []
+        out: list[tuple[int, int, int, int, int]] = []
 
         # If last is None, generate all possible five-card combinations
         if last is None:
@@ -41,7 +41,7 @@ class BitsetFiveCardEngine:
             out.extend(self._gen_straight(hand, last if last.hand_type == HandType.STRAIGHT else None))
         return out
 
-    def _gen_straight_flush(self, hand: Hand, last_same: Optional[LastFive]):
+    def _gen_straight_flush(self, hand: Hand, last_same: LastFive | None):
         for s in SUITS:
             bits = hand.suit_rank_bits[s]
             for w_idx, W in enumerate(STRAIGHT_WINDOWS):
@@ -54,7 +54,7 @@ class BitsetFiveCardEngine:
                     slots = tuple(sorted(hand.slot_of[r][s] for r in ranks))
                     yield slots
 
-    def _gen_four_kind(self, hand: Hand, last_same: Optional[LastFive]):
+    def _gen_four_kind(self, hand: Hand, last_same: LastFive | None):
         for ra in RANKS:
             if hand.rank_cnt[ra] == 4:
                 quad_slots = [hand.slot_of[ra][s] for s in SUITS if (hand.rank_suits_mask[ra] >> s) & 1]
@@ -68,7 +68,7 @@ class BitsetFiveCardEngine:
                         continue
                     yield tuple(sorted(quad_slots + [i]))
 
-    def _gen_full_house(self, hand: Hand, last_same: Optional[LastFive]):
+    def _gen_full_house(self, hand: Hand, last_same: LastFive | None):
         triples = [r for r in RANKS if hand.rank_cnt[r] >= 3]
         pairs = [r for r in RANKS if hand.rank_cnt[r] >= 2]
         for ra in triples:
@@ -86,7 +86,7 @@ class BitsetFiveCardEngine:
                     for B in _choose_k(rb_slots, 2):
                         yield tuple(sorted(A + B))
 
-    def _gen_flush(self, hand: Hand, last_same: Optional[LastFive]):
+    def _gen_flush(self, hand: Hand, last_same: LastFive | None):
         for s in SUITS:
             c = hand.suit_cnt[s]
             if c < 5:
@@ -130,7 +130,7 @@ class BitsetFiveCardEngine:
                 yield slots
                 idx = _next_comb(idx, k=5, n=n)
 
-    def _gen_straight(self, hand: Hand, last_same: Optional[LastFive]):
+    def _gen_straight(self, hand: Hand, last_same: LastFive | None):
         for w_idx, W in enumerate(STRAIGHT_WINDOWS):
             if (hand.rank_any_bits & W) != W:
                 continue

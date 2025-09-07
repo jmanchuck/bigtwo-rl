@@ -1,7 +1,7 @@
 """Greedy agent for fixed 1,365-action space Big Two."""
 
+
 import numpy as np
-from typing import Optional
 
 from .base_agent import BaseAgent
 
@@ -18,10 +18,11 @@ class GreedyAgent(BaseAgent):
 
         Args:
             name: Agent name for identification
+
         """
         super().__init__(name)
 
-    def get_action(self, observation: np.ndarray, action_mask: Optional[np.ndarray] = None) -> int:
+    def get_action(self, observation: np.ndarray, action_mask: np.ndarray | None = None) -> int:
         """Get greedy action - always select first legal action.
 
         The action space is organized so that lower action IDs correspond
@@ -33,16 +34,16 @@ class GreedyAgent(BaseAgent):
 
         Returns:
             Lowest legal action ID from 0-1364
+
         """
         if action_mask is not None:
             legal_actions = np.where(action_mask)[0]
             if len(legal_actions) > 0:
                 # Return first (lowest) legal action
                 return int(legal_actions[0])
-            else:
-                # No legal actions (shouldn't happen in normal play)
-                print("Warning: No legal actions available, returning action 0")
-                return 0
+            # No legal actions (shouldn't happen in normal play)
+            print("Warning: No legal actions available, returning action 0")
+            return 0
 
         # No action mask provided - default to action 0 (lowest single)
         return 0
@@ -52,9 +53,8 @@ class GreedyAgent(BaseAgent):
 
         Greedy agent has no internal state to reset.
         """
-        pass
 
-    def get_action_distribution(self, observation: np.ndarray, action_mask: Optional[np.ndarray] = None) -> np.ndarray:
+    def get_action_distribution(self, observation: np.ndarray, action_mask: np.ndarray | None = None) -> np.ndarray:
         """Get action distribution - deterministic greedy selection.
 
         Args:
@@ -63,6 +63,7 @@ class GreedyAgent(BaseAgent):
 
         Returns:
             Probability distribution (1.0 for greedy action, 0.0 for others)
+
         """
         prob_dist = np.zeros(1365)
 

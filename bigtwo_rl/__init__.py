@@ -12,18 +12,17 @@ Main components:
 __version__ = "1.0.0"  # Clean single-system version
 
 # Core components
-from .core.bigtwo_wrapper import BigTwoWrapper
-
-# from .agents.ppo_agent import PPOAgent  # Temporarily disabled
-from .agents.random_agent import RandomAgent
 # from .agents.greedy_agent import GreedyAgent  # Temporarily disabled
 # from .training.trainer import Trainer  # Temporarily disabled to avoid circular import
 # from .evaluation.evaluator import Evaluator  # Temporarily disabled
 # from .evaluation.tournament import Tournament  # Temporarily disabled
-
 # Always available components
 from .agents.base_agent import BaseAgent
+
+# from .agents.ppo_agent import PPOAgent  # Temporarily disabled
+from .agents.random_agent import RandomAgent
 from .core.bigtwo import ToyBigTwoFullRules
+from .core.bigtwo_wrapper import BigTwoWrapper
 
 # Backward compatibility aliases
 BigTwoRLWrapper = BigTwoWrapper  # For existing code
