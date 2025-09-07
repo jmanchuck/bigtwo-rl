@@ -143,8 +143,16 @@ class ActionMaskBuilder:
         hand.build_derived()
         ids: List[int] = []
 
-        # Find the slot containing 3 of diamonds (it'll always be first card when sorted)
-        three_diamonds_slot = 0
+        # Find the slot containing 3 of diamonds
+        three_diamonds_slot = None
+        for i, c in enumerate(hand.card):
+            if c == 0 and not hand.played[i]:  # 3D is encoded as 0
+                three_diamonds_slot = i
+                break
+
+        if three_diamonds_slot is None:
+            # No 3 of diamonds available, return empty list
+            return ids
 
         # Pre-compute played lookup for faster access
         played = hand.played

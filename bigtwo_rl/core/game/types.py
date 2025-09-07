@@ -64,7 +64,7 @@ class Hand:
     Slots never move; we only flip played bits.
     card: length-13 list of uint8 codes (rank<<2|suit)
     played: length-13 list of 0/1 flags
-    Derived fields are rebuilt each call via build_derived().
+    Derived fields are rebuilt only when needed via build_derived().
     """
 
     card: List[int]
@@ -77,9 +77,13 @@ class Hand:
     suit_rank_bits: List[int] = None
     rank_any_bits: int = 0
     slot_of: List[List[int]] = None  # [rank][suit] -> slot or -1
+    _derived_built: bool = False
 
     def build_derived(self) -> None:
         """Rebuild derived fields from current card/played state."""
+        if self._derived_built:
+            return
+            
         self.rank_cnt = [0] * 13
         self.rank_suits_mask = [0] * 13
         self.suit_cnt = [0] * 4
@@ -97,6 +101,12 @@ class Hand:
             self.suit_rank_bits[s] |= 1 << r
             self.rank_any_bits |= 1 << r
             self.slot_of[r][s] = i
+            
+        self._derived_built = True
+        
+    def invalidate_derived(self) -> None:
+        """Mark derived state as needing rebuild after hand changes."""
+        self._derived_built = False
 
 
 class FiveCardEngine(Protocol):
