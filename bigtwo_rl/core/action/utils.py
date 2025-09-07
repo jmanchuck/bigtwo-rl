@@ -1,14 +1,14 @@
 """Combinatorial utilities and hand classification for Big Two action space."""
 
 from __future__ import annotations
-from typing import List, Tuple, Optional
+
 from math import comb
 
-from core import RANKS, SUITS, rank_of, suit_of
-from game import HandType, STRAIGHT_WINDOWS
+from bigtwo_rl.core.cards import rank_of, suit_of
+from bigtwo_rl.core.game import STRAIGHT_WINDOWS, HandType
 
 
-def _choose_k(items: List[int], k: int):
+def _choose_k(items: list[int], k: int):
     """Generate all k-element combinations of items."""
     n = len(items)
     if k == 0:
@@ -30,7 +30,7 @@ def _choose_k(items: List[int], k: int):
             idx[u] = idx[u - 1] + 1
 
 
-def _next_comb(idx: List[int], k: int, n: int) -> Optional[List[int]]:
+def _next_comb(idx: list[int], k: int, n: int) -> list[int] | None:
     """Return next k-combination index list in lex order for universe size n, or None if at end."""
     res = idx[:]  # copy
     for t in range(k - 1, -1, -1):
@@ -55,7 +55,7 @@ def comb_index_5(i: int, j: int, k: int, ell: int, m: int) -> int:
     return res
 
 
-def comb_5_from_index(index: int) -> Tuple[int, int, int, int, int]:
+def comb_5_from_index(index: int) -> tuple[int, int, int, int, int]:
     """Convert combinatorial index back to 5-tuple of card slots."""
     assert 0 <= index < comb(13, 5), f"Index {index} out of range"
 
@@ -81,7 +81,7 @@ def comb_5_from_index(index: int) -> Tuple[int, int, int, int, int]:
     return tuple(arr)
 
 
-def classify_five(card: List[int], slots: Tuple[int, int, int, int, int]) -> Tuple[int, Tuple]:
+def classify_five(card: list[int], slots: tuple[int, int, int, int, int]) -> tuple[int, tuple]:
     """Classify a five-card hand and return its type and key."""
     rs = [rank_of(card[i]) for i in slots]
     ss = [suit_of(card[i]) for i in slots]

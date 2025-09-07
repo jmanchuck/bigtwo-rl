@@ -3,8 +3,8 @@
 from __future__ import annotations
 from typing import List, Tuple, Optional
 
-from core import RANKS, SUITS, rank_of
-from game import Hand, LastFive, FiveCardEngine, HandType, STRAIGHT_WINDOWS
+from bigtwo_rl.core.cards import RANKS, SUITS, rank_of
+from bigtwo_rl.core.game.types import Hand, LastFive, FiveCardEngine, HandType, STRAIGHT_WINDOWS
 from .utils import _choose_k, _next_comb
 
 

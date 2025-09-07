@@ -2,9 +2,12 @@ import random
 from collections.abc import Generator
 from functools import lru_cache
 from itertools import combinations
-from typing import Any, List, Optional, Union, Tuple, Dict
+from typing import Any
 
 import numpy as np
+
+from bigtwo_rl.core.cards import encode
+from bigtwo_rl.core.game.types import Hand
 
 
 class ToyBigTwoFullRules:
@@ -14,7 +17,7 @@ class ToyBigTwoFullRules:
     num_players: int
     hands: np.ndarray  # shape (num_players, 52) boolean array
     current_player: int
-    last_play: Optional[Tuple[np.ndarray, int]]  # (cards_mask, player_idx)
+    last_play: tuple[np.ndarray, int] | None  # (cards_mask, player_idx)
     passes_in_row: int
     done: bool
 
@@ -86,7 +89,7 @@ class ToyBigTwoFullRules:
         self.track_move_history = track_move_history
         self.reset()
 
-    def reset(self, seed: Optional[int] = None) -> Dict[str, Any]:
+    def reset(self, seed: int | None = None) -> dict[str, Any]:
         if seed:
             random.seed(seed)
         # Deal cards
@@ -132,14 +135,14 @@ class ToyBigTwoFullRules:
     def _identify_hand_type_cached(
         self,
         cards_tuple: tuple[int, ...],
-    ) -> Tuple[str, int]:
+    ) -> tuple[str, int]:
         """Cached hand type identification using LRU cache."""
         return self._identify_hand_type_uncached(list(cards_tuple))
 
     def _identify_hand_type(
         self,
-        cards: Union[List[int], np.ndarray],
-    ) -> Tuple[str, int]:
+        cards: list[int] | np.ndarray,
+    ) -> tuple[str, int]:
         """Identify the type of hand and return (hand_type, strength_value)."""
         # Use LRU cache for frequently computed hand types
         # Normalize input to list of indices
@@ -153,7 +156,7 @@ class ToyBigTwoFullRules:
         cards_tuple = tuple(sorted(cards))
         return self._identify_hand_type_cached(cards_tuple)
 
-    def _identify_hand_type_uncached(self, cards: List[int]) -> tuple[str, int]:
+    def _identify_hand_type_uncached(self, cards: list[int]) -> tuple[str, int]:
         """Actual hand type identification using vectorized operations."""
         if len(cards) == 1:
             return "single", self._card_value(cards[0]) * 4 + self._suit(cards[0])
@@ -177,7 +180,7 @@ class ToyBigTwoFullRules:
             return self._identify_five_card_hand(cards)
         return "invalid", 0
 
-    def _identify_five_card_hand(self, cards: List[int]) -> tuple[str, int]:
+    def _identify_five_card_hand(self, cards: list[int]) -> tuple[str, int]:
         """Identify 5-card hand types using vectorized NumPy mask operations."""
         # Build 52-length boolean mask for the cards
         mask = np.zeros(52, dtype=np.uint8)
@@ -240,7 +243,7 @@ class ToyBigTwoFullRules:
         """Convert rank (0-12) to Big Two value (0-12)."""
         return self._RANK_TO_VALUE[rank]
 
-    def _is_straight(self, ranks: List[int]) -> bool:
+    def _is_straight(self, ranks: list[int]) -> bool:
         """Check if ranks form a valid Big Two straight using vectorized operations."""
         # Convert to Big Two values for straight checking
         values = np.array([self._card_value_from_rank(r) for r in ranks])
@@ -258,7 +261,7 @@ class ToyBigTwoFullRules:
 
         return False
 
-    def legal_moves(self, player: int) -> List[np.ndarray]:
+    def legal_moves(self, player: int) -> list[np.ndarray]:
         """Generate all legal singles, pairs, trips, and 5-card hands."""
         hand_array = self.hands[player]  # boolean array
         hand_cards = np.where(hand_array)[0]  # get actual card indices
@@ -357,7 +360,7 @@ class ToyBigTwoFullRules:
             return hand_type.replace("_", " ").title()
         return f"{move_len}-card"
 
-    def _beats(self, play: Union[List[int], np.ndarray]) -> bool:
+    def _beats(self, play: list[int] | np.ndarray) -> bool:
         """Check if a candidate play beats last_play, or starts a trick if no last_play."""
         # Interpret PASS first
         is_pass = False
@@ -420,7 +423,7 @@ class ToyBigTwoFullRules:
     def step(
         self,
         action: int,
-    ) -> Tuple[Dict[str, Any], List[float], bool, Dict[str, Any]]:
+    ) -> tuple[dict[str, Any], list[float], bool, dict[str, Any]]:
         """Action = index into legal_moves list."""
         if self.done:
             raise ValueError("Game already over")
@@ -502,7 +505,7 @@ class ToyBigTwoFullRules:
 
     def _can_potentially_beat_5_card(
         self,
-        hand: List[int],
+        hand: list[int],
         last_type: str,
         _last_strength: int,
     ) -> bool:
@@ -570,7 +573,7 @@ class ToyBigTwoFullRules:
 
         return True  # Default to checking if unsure
 
-    def _generate_5_card_hands_optimized(self, hand: List[int]) -> List[np.ndarray]:
+    def _generate_5_card_hands_optimized(self, hand: list[int]) -> list[np.ndarray]:
         """Generate 5-card hands with smart pre-filtering to avoid expensive combinations."""
         moves = []
 
@@ -588,8 +591,8 @@ class ToyBigTwoFullRules:
         unique_ranks, rank_counts = np.unique(ranks_arr, return_counts=True)
 
         # Create efficient lookups
-        suit_dict = dict(zip(unique_suits, suit_counts))
-        rank_dict = dict(zip(unique_ranks, rank_counts))
+        suit_dict = dict(zip(unique_suits, suit_counts, strict=False))
+        rank_dict = dict(zip(unique_ranks, rank_counts, strict=False))
 
         # 1. FLUSHES: Only check suits with 5+ cards
         flush_suits = [suit for suit, count in suit_dict.items() if count >= 5]
@@ -635,8 +638,8 @@ class ToyBigTwoFullRules:
 
     def _generate_flush_combinations(
         self,
-        suit_cards: List[int],
-        moves: List[np.ndarray],
+        suit_cards: list[int],
+        moves: list[np.ndarray],
     ) -> None:
         """Generate valid flush combinations from cards of same suit."""
         for combo in combinations(suit_cards, 5):
@@ -645,7 +648,7 @@ class ToyBigTwoFullRules:
             if self._beats(combo_mask):
                 moves.append(combo_mask)
 
-    def _has_straight_potential(self, unique_ranks: List[int]) -> bool:
+    def _has_straight_potential(self, unique_ranks: list[int]) -> bool:
         """Quick check if hand has potential for straights."""
         if len(unique_ranks) < 5:
             return False
@@ -667,8 +670,8 @@ class ToyBigTwoFullRules:
 
     def _generate_straight_combinations(
         self,
-        hand: List[int],
-        moves: List[np.ndarray],
+        hand: list[int],
+        moves: list[np.ndarray],
     ) -> None:
         """Generate straight combinations efficiently."""
         # Pre-filter: only generate combinations that could form straights
@@ -698,9 +701,9 @@ class ToyBigTwoFullRules:
 
     def _build_straights_from_ranks(
         self,
-        straight_ranks: List[int],
-        rank_groups: Dict[int, List[int]],
-        moves: List[np.ndarray],
+        straight_ranks: list[int],
+        rank_groups: dict[int, list[int]],
+        moves: list[np.ndarray],
     ) -> None:
         """Build all possible straights from given ranks."""
         # Get one card from each rank to form straights
@@ -715,8 +718,8 @@ class ToyBigTwoFullRules:
 
     def _cartesian_product(
         self,
-        lists: list[List[int]],
-    ) -> Generator[List[int]]:
+        lists: list[list[int]],
+    ) -> Generator[list[int]]:
         """Efficient cartesian product for straight generation."""
         if not lists:
             yield []
@@ -726,7 +729,7 @@ class ToyBigTwoFullRules:
             for rest in self._cartesian_product(lists[1:]):
                 yield [item] + rest
 
-    def _find_pairs_vectorized(self, hand: List[int]) -> List[np.ndarray]:
+    def _find_pairs_vectorized(self, hand: list[int]) -> list[np.ndarray]:
         """Find all pairs using fully vectorized numpy operations."""
         if len(hand) < 2:
             return []
@@ -739,7 +742,7 @@ class ToyBigTwoFullRules:
 
         pairs = []
         # For each rank with 2+ cards, generate pairs
-        for rank, count in zip(unique_ranks, counts):
+        for rank, count in zip(unique_ranks, counts, strict=False):
             if count >= 2:
                 # Get all cards of this rank
                 rank_cards = hand_arr[ranks == rank]
@@ -759,7 +762,7 @@ class ToyBigTwoFullRules:
 
         return pairs
 
-    def _find_trips_vectorized(self, hand: List[int]) -> List[np.ndarray]:
+    def _find_trips_vectorized(self, hand: list[int]) -> list[np.ndarray]:
         """Find all trips using fully vectorized numpy operations."""
         if len(hand) < 3:
             return []
@@ -772,7 +775,7 @@ class ToyBigTwoFullRules:
 
         trips = []
         # For each rank with 3+ cards, generate trips
-        for rank, count in zip(unique_ranks, counts):
+        for rank, count in zip(unique_ranks, counts, strict=False):
             if count >= 3:
                 # Get all cards of this rank
                 rank_cards = hand_arr[ranks == rank]
@@ -788,7 +791,7 @@ class ToyBigTwoFullRules:
 
         return trips
 
-    def _group_cards_by_rank_vectorized(self, hand: List[int]) -> Dict[int, List[int]]:
+    def _group_cards_by_rank_vectorized(self, hand: list[int]) -> dict[int, list[int]]:
         """Group cards by rank using numpy for efficient processing."""
         if not hand:
             return {}
@@ -804,7 +807,7 @@ class ToyBigTwoFullRules:
 
         return rank_groups
 
-    def _group_cards_by_suit_vectorized(self, hand: List[int]) -> Dict[int, List[int]]:
+    def _group_cards_by_suit_vectorized(self, hand: list[int]) -> dict[int, list[int]]:
         """Group cards by suit using numpy for efficient processing."""
         if not hand:
             return {}
@@ -844,16 +847,17 @@ class ToyBigTwoFullRules:
     # === Hand API Methods ===
     # New methods to support Hand-based operations for cleaner integration
 
-    def reset_with_hands(self, seed: Optional[int] = None) -> List["Hand"]:
+    def reset_with_hands(self, seed: int | None = None) -> list[Hand]:
         """Reset game and return Hand objects for all players.
 
         Returns:
             List of Hand objects, one for each player
+
         """
         self.reset(seed)
         return [self.get_player_hand(i) for i in range(self.num_players)]
 
-    def get_player_hand(self, player_idx: int) -> "Hand":
+    def get_player_hand(self, player_idx: int) -> Hand:
         """Get Hand object for specific player.
 
         Args:
@@ -861,11 +865,8 @@ class ToyBigTwoFullRules:
 
         Returns:
             Hand object representing player's current hand
-        """
-        # Import here to avoid circular imports
-        from .cards import encode
-        from .game.types import Hand
 
+        """
         hand_mask = self.hands[player_idx]
 
         # Extract and sort cards by Big Two value then suit
@@ -877,8 +878,8 @@ class ToyBigTwoFullRules:
         sorted_cards = sorted(player_cards, key=card_sort_key)
 
         # Convert to bigtwo-agent format (rank<<2|suit encoding)
-        hand_cards: List[int] = []
-        hand_played: List[int] = []
+        hand_cards: list[int] = []
+        hand_played: list[int] = []
 
         for card_idx in sorted_cards:
             rank = self._RANK_TABLE[card_idx]
@@ -895,11 +896,12 @@ class ToyBigTwoFullRules:
         hand.build_derived()  # Build lookup tables for fast access
         return hand
 
-    def get_last_played_cards_encoded(self) -> List[int]:
+    def get_last_played_cards_encoded(self) -> list[int]:
         """Get last played cards as encoded (rank<<2)|suit list.
 
         Returns:
             List of encoded cards, empty if no last play
+
         """
         from .cards import encode
 
@@ -908,7 +910,7 @@ class ToyBigTwoFullRules:
 
         last_cards_mask, _ = self.last_play
         indices = np.where(last_cards_mask)[0].tolist()
-        encoded: List[int] = []
+        encoded: list[int] = []
         for card_idx in indices:
             rank = self._RANK_TABLE[card_idx]
             suit = self._SUIT_TABLE[card_idx]
@@ -920,6 +922,7 @@ class ToyBigTwoFullRules:
 
         Returns:
             True if current player has control
+
         """
         return self.passes_in_row >= 3
 
@@ -928,18 +931,20 @@ class ToyBigTwoFullRules:
 
         Returns:
             True if no plays have been made yet
+
         """
         return self.last_play is None
 
-    def get_player_card_counts(self) -> List[int]:
+    def get_player_card_counts(self) -> list[int]:
         """Get number of cards remaining for each player.
 
         Returns:
             List of card counts for players 0-3
+
         """
         return [int(np.sum(self.hands[i])) for i in range(self.num_players)]
 
-    def play_hand_move(self, player: int, slot_indices: List[int]) -> bool:
+    def play_hand_move(self, player: int, slot_indices: list[int]) -> bool:
         """Execute move described by Hand slot indices.
 
         Args:
@@ -948,6 +953,7 @@ class ToyBigTwoFullRules:
 
         Returns:
             True if move was executed successfully
+
         """
         if player != self.current_player:
             return False
@@ -976,7 +982,7 @@ class ToyBigTwoFullRules:
 
         return False  # Move not legal
 
-    def _slot_indices_to_game_move(self, player: int, slot_indices: List[int]) -> Optional[np.ndarray]:
+    def _slot_indices_to_game_move(self, player: int, slot_indices: list[int]) -> np.ndarray | None:
         """Convert Hand slot indices to 52-card boolean array for game engine.
 
         Args:
@@ -985,6 +991,7 @@ class ToyBigTwoFullRules:
 
         Returns:
             52-card boolean array or None if invalid
+
         """
         from .cards import rank_of, suit_of
 

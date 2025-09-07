@@ -18,14 +18,6 @@ def encode(r, s):
     return r << 2 | s
 
 
-def rank_of(code):
-    return code >> 2
-
-
-def suit_of(code):
-    return code & 3
-
-
 class Action:
     PASS = 0
     SINGLE = 1
@@ -83,41 +75,8 @@ class LastFive:
     key: tuple  # comparison key within category
 
 
-@dataclass
-class Hand:
-    """Fixed 13-slot hand. Slots never move; we only flip played bits.
-    card: length-13 list of uint8 codes (rank<<2|suit)
-    played: length-13 list of 0/1 flags
-    Derived fields are rebuilt each call via build_derived().
-    """
-
-    card: list[int]
-    played: list[int]
-    # derived
-    rank_cnt: list[int] = None
-    rank_suits_mask: list[int] = None
-    suit_cnt: list[int] = None
-    suit_rank_bits: list[int] = None
-    rank_any_bits: int = 0
-    slot_of: list[list[int]] = None  # [rank][suit] -> slot or -1
-
-    def build_derived(self) -> None:
-        self.rank_cnt = [0] * 13
-        self.rank_suits_mask = [0] * 13
-        self.suit_cnt = [0] * 4
-        self.suit_rank_bits = [0] * 4
-        self.rank_any_bits = 0
-        self.slot_of = [[-1] * 4 for _ in range(13)]
-        for i, c in enumerate(self.card):
-            if self.played[i]:
-                continue
-            r, s = rank_of(c), suit_of(c)
-            self.rank_cnt[r] += 1
-            self.rank_suits_mask[r] |= 1 << s
-            self.suit_cnt[s] += 1
-            self.suit_rank_bits[s] |= 1 << r
-            self.rank_any_bits |= 1 << r
-            self.slot_of[r][s] = i
+# Import Hand from the canonical location
+from ..game.types import Hand
 
 
 class FiveCardEngine(Protocol):
