@@ -1,7 +1,7 @@
 """Train with stochastic checkpoint gating to prevent effective KPI regression.
 
 This script trains in chunks, evaluates each checkpoint against random/greedy,
-and promotes only the best-by-random checkpoint.
+and promotes checkpoints by configurable KPI(s).
 """
 
 from __future__ import annotations
@@ -178,6 +178,31 @@ def behavior_probe(model_path: str, games: int, seed: int) -> dict[str, float]:
     }
 
 
+def _clamp01(value: float) -> float:
+    return max(0.0, min(1.0, float(value)))
+
+
+def _league_prob_for_step(
+    trained_steps: int,
+    start_prob: float,
+    end_prob: float,
+    ramp_steps: int,
+) -> float:
+    if ramp_steps <= 0:
+        return _clamp01(end_prob)
+    frac = min(1.0, max(0.0, trained_steps / ramp_steps))
+    return _clamp01(start_prob + (end_prob - start_prob) * frac)
+
+
+def _kpi_score(wr_random: float, wr_greedy: float, mode: str, greedy_weight: float) -> float:
+    if mode == "random":
+        return wr_random
+    if mode == "greedy":
+        return wr_greedy
+    g_weight = _clamp01(greedy_weight)
+    return (1.0 - g_weight) * wr_random + g_weight * wr_greedy
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--run-name", default="gated_curve")
@@ -195,7 +220,22 @@ def main() -> None:
     parser.add_argument("--n-epochs", type=int, default=4)
     parser.add_argument("--ent-coef", type=float, default=0.005)
     parser.add_argument("--clip-range", type=float, default=0.2)
-    parser.add_argument("--league-opponent-prob", type=float, default=0.0)
+    parser.add_argument(
+        "--league-opponent-prob",
+        type=float,
+        default=None,
+        help="Deprecated constant value; overrides start/end/ramp when set.",
+    )
+    parser.add_argument("--league-opponent-prob-start", type=float, default=0.0)
+    parser.add_argument("--league-opponent-prob-end", type=float, default=0.12)
+    parser.add_argument("--league-opponent-prob-ramp-steps", type=int, default=1_000_000)
+    parser.add_argument("--primary-kpi", choices=["greedy", "random", "blended"], default="greedy")
+    parser.add_argument(
+        "--blended-kpi-greedy-weight",
+        type=float,
+        default=0.7,
+        help="Only used when --primary-kpi=blended.",
+    )
     parser.add_argument(
         "--reward",
         choices=["default", "sparse", "progressive", "ranking", "score_margin"],
@@ -204,6 +244,15 @@ def main() -> None:
     parser.add_argument("--no-anneal-lr", action="store_true")
     parser.add_argument("--no-anneal-clip", action="store_true")
     args = parser.parse_args()
+    if args.league_opponent_prob is not None:
+        league_prob_start = _clamp01(args.league_opponent_prob)
+        league_prob_end = league_prob_start
+        league_prob_ramp_steps = 0
+    else:
+        league_prob_start = _clamp01(args.league_opponent_prob_start)
+        league_prob_end = _clamp01(args.league_opponent_prob_end)
+        league_prob_ramp_steps = max(0, int(args.league_opponent_prob_ramp_steps))
+    blended_kpi_greedy_weight = _clamp01(args.blended_kpi_greedy_weight)
 
     model_dir = Path("models") / args.run_name
     log_dir = Path("logs") / args.run_name
@@ -230,7 +279,7 @@ def main() -> None:
         n_epochs=args.n_epochs,
         clip_range=args.clip_range,
         ent_coef=args.ent_coef,
-        league_opponent_prob=args.league_opponent_prob,
+        league_opponent_prob=league_prob_start,
         anneal_lr=not args.no_anneal_lr,
         anneal_clip=not args.no_anneal_clip,
     )
@@ -240,10 +289,23 @@ def main() -> None:
 
     trained_steps = 0
     best_random = -1.0
-    best_checkpoint = None
+    best_random_checkpoint = None
+    best_greedy = -1.0
+    best_greedy_checkpoint = None
+    best_blended = -1.0
+    best_blended_checkpoint = None
+    best_primary = -1.0
+    best_primary_checkpoint = None
     records: list[dict] = []
 
     while trained_steps < args.max_steps:
+        model.league_opponent_prob = _league_prob_for_step(
+            trained_steps=trained_steps,
+            start_prob=league_prob_start,
+            end_prob=league_prob_end,
+            ramp_steps=league_prob_ramp_steps,
+        )
+
         step = min(args.chunk_steps, args.max_steps - trained_steps)
         # Keep each chunk as an independent learn horizon for schedule stability.
         # Reusing reset_num_timesteps=False across repeated short learns can push
@@ -271,25 +333,55 @@ def main() -> None:
             opponent="greedy",
             stochastic=True,
         )
+        score_blended = _kpi_score(wr_random, wr_greedy, "blended", blended_kpi_greedy_weight)
+        score_primary = _kpi_score(wr_random, wr_greedy, args.primary_kpi, blended_kpi_greedy_weight)
         behavior = behavior_probe(
             ckpt,
             games=args.behavior_games,
             seed=args.seed + 20_000 + trained_steps // 1000,
         )
 
-        improved = wr_random > best_random
-        if improved:
+        improved_random = wr_random > best_random
+        if improved_random:
             best_random = wr_random
-            best_checkpoint = ckpt
+            best_random_checkpoint = ckpt
             model.save(model_dir / "best_by_random")
+        improved_greedy = wr_greedy > best_greedy
+        if improved_greedy:
+            best_greedy = wr_greedy
+            best_greedy_checkpoint = ckpt
+            model.save(model_dir / "best_by_greedy")
+        improved_blended = score_blended > best_blended
+        if improved_blended:
+            best_blended = score_blended
+            best_blended_checkpoint = ckpt
+            model.save(model_dir / "best_by_blended")
+        improved_primary = score_primary > best_primary
+        if improved_primary:
+            best_primary = score_primary
+            best_primary_checkpoint = ckpt
+            model.save(model_dir / "best_by_primary")
 
         rec = {
             "steps": trained_steps,
             "win_rate_random_stochastic": wr_random,
             "win_rate_greedy_stochastic": wr_greedy,
-            "is_new_best_random": improved,
+            "score_blended": score_blended,
+            "score_primary": score_primary,
+            "primary_kpi": args.primary_kpi,
+            "league_opponent_prob": model.league_opponent_prob,
+            "is_new_best_random": improved_random,
+            "is_new_best_greedy": improved_greedy,
+            "is_new_best_blended": improved_blended,
+            "is_new_best_primary": improved_primary,
             "best_random_so_far": best_random,
-            "best_checkpoint_so_far": best_checkpoint,
+            "best_random_checkpoint_so_far": best_random_checkpoint,
+            "best_greedy_so_far": best_greedy,
+            "best_greedy_checkpoint_so_far": best_greedy_checkpoint,
+            "best_blended_so_far": best_blended,
+            "best_blended_checkpoint_so_far": best_blended_checkpoint,
+            "best_primary_so_far": best_primary,
+            "best_primary_checkpoint_so_far": best_primary_checkpoint,
             "behavior": behavior,
         }
         records.append(rec)
@@ -299,8 +391,16 @@ def main() -> None:
         json.dump(records, f, indent=2)
 
     summary = {
-        "best_checkpoint": best_checkpoint,
+        "best_checkpoint": best_primary_checkpoint,
+        "best_primary_checkpoint": best_primary_checkpoint,
+        "best_random_checkpoint": best_random_checkpoint,
+        "best_greedy_checkpoint": best_greedy_checkpoint,
+        "best_blended_checkpoint": best_blended_checkpoint,
+        "primary_kpi": args.primary_kpi,
+        "best_primary_score": best_primary,
         "best_random_win_rate": best_random,
+        "best_greedy_win_rate": best_greedy,
+        "best_blended_score": best_blended,
         "max_steps": args.max_steps,
         "chunk_steps": args.chunk_steps,
         "eval_games": args.eval_games,
@@ -315,9 +415,12 @@ def main() -> None:
             "n_epochs": args.n_epochs,
             "clip_range": args.clip_range,
             "ent_coef": args.ent_coef,
-            "league_opponent_prob": args.league_opponent_prob,
+            "league_opponent_prob_start": league_prob_start,
+            "league_opponent_prob_end": league_prob_end,
+            "league_opponent_prob_ramp_steps": league_prob_ramp_steps,
             "anneal_lr": not args.no_anneal_lr,
             "anneal_clip": not args.no_anneal_clip,
+            "blended_kpi_greedy_weight": blended_kpi_greedy_weight,
         },
     }
     with open(model_dir / "gated_summary.json", "w") as f:
