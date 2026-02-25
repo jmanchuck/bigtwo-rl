@@ -1,7 +1,6 @@
 """Card encoding/decoding utilities for human-readable format."""
 
 import numpy as np
-from typing import List, Union
 
 
 def card_to_string(card_idx: int) -> str:
@@ -35,23 +34,23 @@ def string_to_card(card_str: str) -> int:
         raise ValueError(f"Invalid card: {card_str}")
 
 
-def hand_to_strings(hand: List[int]) -> List[str]:
+def hand_to_strings(hand: list[int]) -> list[str]:
     """Convert list of card indices to readable strings."""
     return [card_to_string(card) for card in sorted(hand)]
 
 
-def strings_to_cards(card_strings: List[str]) -> List[int]:
+def strings_to_cards(card_strings: list[str]) -> list[int]:
     """Convert list of card strings to indices."""
     return [string_to_card(card_str) for card_str in card_strings]
 
 
-def format_hand(hand: List[int]) -> str:
+def format_hand(hand: list[int]) -> str:
     """Format hand for display."""
     cards = hand_to_strings(hand)
     return " ".join(cards)
 
 
-def parse_move_input(input_str: str, hand: List[int]) -> List[int]:
+def parse_move_input(input_str: str, hand: list[int]) -> list[int]:
     """Parse user input for card play."""
     if not input_str.strip() or input_str.lower() == "pass":
         return []
@@ -72,13 +71,13 @@ def parse_move_input(input_str: str, hand: List[int]) -> List[int]:
 # Numpy array conversion functions
 
 
-def hand_array_to_strings(hand_array: np.ndarray) -> List[str]:
+def hand_array_to_strings(hand_array: np.ndarray) -> list[str]:
     """Convert numpy boolean array (shape 52) to readable strings."""
     card_indices = np.where(hand_array)[0]
     return [card_to_string(card) for card in sorted(card_indices)]
 
 
-def strings_to_hand_array(card_strings: List[str]) -> np.ndarray:
+def strings_to_hand_array(card_strings: list[str]) -> np.ndarray:
     """Convert list of card strings to numpy boolean array."""
     hand_array = np.zeros(52, dtype=bool)
     card_indices = strings_to_cards(card_strings)
@@ -119,7 +118,7 @@ def card_indices_from_array(hand_array: np.ndarray) -> np.ndarray:
     return np.where(hand_array)[0]
 
 
-def array_from_card_indices(card_indices: Union[List[int], np.ndarray]) -> np.ndarray:
+def array_from_card_indices(card_indices: list[int] | np.ndarray) -> np.ndarray:
     """Create numpy boolean array from card indices."""
     hand_array = np.zeros(52, dtype=bool)
     hand_array[card_indices] = True

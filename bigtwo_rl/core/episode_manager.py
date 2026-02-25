@@ -1,7 +1,5 @@
 """Episode management for multi-game Big Two RL training sessions."""
 
-import numpy as np
-from typing import Dict, Any, Optional, List, Tuple
 
 
 class EpisodeManager:
@@ -23,6 +21,7 @@ class EpisodeManager:
             games_per_episode: Number of games per training episode
             num_players: Number of players in each game
             controlled_player: Index of the player being trained
+
         """
         self.games_per_episode = games_per_episode
         self.num_players = num_players
@@ -38,7 +37,7 @@ class EpisodeManager:
         # Big Two metrics tracking
         self._episode_steps = 0
         self._move_counts = {"singles": 0, "pairs": 0, "five_cards": 0}
-        self._final_positions: List[int] = []  # Rankings across games in episode
+        self._final_positions: list[int] = []  # Rankings across games in episode
         self._total_opponent_cards = 0  # For advantage calculation
 
     def reset_episode(self) -> None:
@@ -63,7 +62,7 @@ class EpisodeManager:
         """Add a move bonus to the accumulated episode total."""
         self._accumulated_move_bonuses += bonus
 
-    def track_move_type(self, move_cards: List[int]) -> None:
+    def track_move_type(self, move_cards: list[int]) -> None:
         """Track the type of move made for strategy metrics."""
         move_count = len(move_cards)
         if move_count == 1:
@@ -73,7 +72,7 @@ class EpisodeManager:
         elif move_count == 5:
             self._move_counts["five_cards"] += 1
 
-    def handle_game_end(self, all_cards_left: List[int]) -> Tuple[int, bool]:
+    def handle_game_end(self, all_cards_left: list[int]) -> tuple[int, bool]:
         """Process end-of-game bookkeeping and return winner and controlled player position.
 
         Args:
@@ -81,6 +80,7 @@ class EpisodeManager:
 
         Returns:
             Tuple of (winner_player_index, controlled_player_won)
+
         """
         self.games_played += 1
 
@@ -96,21 +96,12 @@ class EpisodeManager:
         # Track final position (1st place = 1, 4th place = 4) based on cards remaining
         sorted_positions = sorted(enumerate(all_cards_left), key=lambda x: x[1])
         position = (
-            next(
-                i
-                for i, (player_idx, _) in enumerate(sorted_positions)
-                if player_idx == self.controlled_player
-            )
-            + 1
+            next(i for i, (player_idx, _) in enumerate(sorted_positions) if player_idx == self.controlled_player) + 1
         )
         self._final_positions.append(position)
 
         # Track opponent cards for advantage calculation
-        opponent_cards = sum(
-            cards
-            for i, cards in enumerate(all_cards_left)
-            if i != self.controlled_player
-        )
+        opponent_cards = sum(cards for i, cards in enumerate(all_cards_left) if i != self.controlled_player)
         self._total_opponent_cards += opponent_cards
 
         # Track wins/losses based on whether controlled player won
@@ -136,66 +127,42 @@ class EpisodeManager:
 
         Returns:
             Total episode bonus including accumulated move bonuses
+
         """
         episode_bonus = 0.0
 
         if reward_function is not None and self.games_played > 0:
-            avg_cards_left = (
-                (self.total_cards_when_losing / self.losses_count)
-                if self.losses_count > 0
-                else 0
-            )
-            episode_bonus = reward_function.episode_bonus(
-                self.games_won, self.games_played, avg_cards_left
-            )
+            avg_cards_left = (self.total_cards_when_losing / self.losses_count) if self.losses_count > 0 else 0
+            episode_bonus = reward_function.episode_bonus(self.games_won, self.games_played, avg_cards_left)
         else:
             # Default episode bonus
-            win_rate = (
-                self.games_won / self.games_played if self.games_played > 0 else 0
-            )
+            win_rate = self.games_won / self.games_played if self.games_played > 0 else 0
             episode_bonus = 0.5 if win_rate > 0.6 else 0
 
         # Add accumulated move bonuses from complex moves throughout the episode
         total_bonus = episode_bonus + self._accumulated_move_bonuses
         return total_bonus
 
-    def get_episode_metrics(self) -> Dict[str, float]:
+    def get_episode_metrics(self) -> dict[str, float]:
         """Get Big Two-specific metrics for the completed episode.
 
         Returns:
             Dictionary of episode metrics for logging/analysis
+
         """
         if self.games_played == 0:
             return {}
 
         # Performance metrics
         win_rate = self.games_won / self.games_played
-        avg_cards_remaining = (
-            self.total_cards_when_losing / self.losses_count
-            if self.losses_count > 0
-            else 0
-        )
+        avg_cards_remaining = self.total_cards_when_losing / self.losses_count if self.losses_count > 0 else 0
         # Overall average cards left including wins (winner has 0)
-        avg_cards_overall = (
-            (self.total_cards_when_losing) / self.games_played
-            if self.games_played > 0
-            else 0
-        )
-        final_position_avg = (
-            sum(self._final_positions) / len(self._final_positions)
-            if self._final_positions
-            else 0
-        )
+        avg_cards_overall = (self.total_cards_when_losing) / self.games_played if self.games_played > 0 else 0
+        final_position_avg = sum(self._final_positions) / len(self._final_positions) if self._final_positions else 0
 
         # Opponent analysis
-        avg_opponent_cards_per_game = self._total_opponent_cards / (
-            self.games_played * (self.num_players - 1)
-        )
-        controlled_cards_per_game = (
-            self.total_cards_when_losing / self.losses_count
-            if self.losses_count > 0
-            else 0
-        )
+        avg_opponent_cards_per_game = self._total_opponent_cards / (self.games_played * (self.num_players - 1))
+        controlled_cards_per_game = self.total_cards_when_losing / self.losses_count if self.losses_count > 0 else 0
         cards_advantage = avg_opponent_cards_per_game - controlled_cards_per_game
 
         # Strategy metrics
@@ -205,11 +172,7 @@ class EpisodeManager:
         avg_game_length = self._episode_steps / self.games_played
 
         # Count dominant wins (wins where average opponent had ≥8 cards)
-        dominant_wins = (
-            sum(1 for pos in self._final_positions if pos == 1)
-            if self.games_won > 0
-            else 0
-        )
+        dominant_wins = sum(1 for pos in self._final_positions if pos == 1) if self.games_won > 0 else 0
 
         return {
             "bigtwo/win_rate": win_rate,

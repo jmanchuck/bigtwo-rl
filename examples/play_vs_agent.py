@@ -1,9 +1,15 @@
 """Play Big Two against trained AI agents using Tournament framework."""
 
-import sys
 import os
-from bigtwo_rl.agents import HumanAgent, PPOAgent, GreedyAgent
-from bigtwo_rl.evaluation import Tournament
+import sys
+from typing import cast
+
+from bigtwo_rl.agents import GreedyAgent, HumanAgent, PPOAgent
+
+try:
+    from bigtwo_rl.evaluation import Tournament  # type: ignore[import-not-found]
+except Exception:  # pragma: no cover
+    Tournament = None  # type: ignore[assignment]
 
 
 def main():
@@ -78,9 +84,9 @@ def main():
             print("✅ Playing against 3 Greedy agents")
             opponent_type_display = "Greedy"
         else:
-            agent1 = PPOAgent(model_path, "AI-Agent-1")
-            agent2 = PPOAgent(model_path, "AI-Agent-2")
-            agent3 = PPOAgent(model_path, "AI-Agent-3")
+            agent1 = PPOAgent(cast("str", model_path), "AI-Agent-1")
+            agent2 = PPOAgent(cast("str", model_path), "AI-Agent-2")
+            agent3 = PPOAgent(cast("str", model_path), "AI-Agent-3")
             print(f"✅ Loaded AI model from: {model_path}")
             opponent_type_display = "AI"
 
@@ -88,6 +94,9 @@ def main():
         print()
 
         # Create tournament (single game)
+        if Tournament is None:
+            print("❌ Tournament module not available in this build.")
+            sys.exit(1)
         tournament = Tournament([human, agent1, agent2, agent3])
 
         # Run the game
@@ -125,7 +134,7 @@ def main():
         print("\nCards remaining:")
         # For a single game, get the actual cards remaining from the last game
         # The cards_left_by_game contains lists of [player0_cards, player1_cards, player2_cards, player3_cards]
-        if "cards_left_by_game" in matchup and matchup["cards_left_by_game"]:
+        if matchup.get("cards_left_by_game"):
             final_cards = matchup["cards_left_by_game"][-1]  # Last (and only) game
             for i, cards in enumerate(final_cards):
                 print(f"  {player_labels[i]}: {cards} cards")

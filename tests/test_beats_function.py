@@ -1,7 +1,7 @@
 """Comprehensive unit tests for the _beats() function in Big Two game engine."""
 
-import pytest
 import numpy as np
+
 from bigtwo_rl.core.bigtwo import ToyBigTwoFullRules
 from bigtwo_rl.core.card_utils import string_to_card
 
@@ -35,9 +35,7 @@ class TestBeatsFunction:
         # 3D should not beat 3C (same rank, lower suit)
         self.set_last_play(["3C"])
         candidate = self.create_card_mask(["3D"])
-        assert not self.env._beats(candidate), (
-            "3D should not beat 3C (same rank, lower suit)"
-        )
+        assert not self.env._beats(candidate), "3D should not beat 3C (same rank, lower suit)"
 
         # 3H should beat 3C (same rank, higher suit)
         candidate = self.create_card_mask(["3H"])
@@ -63,9 +61,7 @@ class TestBeatsFunction:
         assert not self.env._beats(candidate), "3C should NOT beat 4C (lower rank)"
 
         candidate = self.create_card_mask(["3S"])
-        assert not self.env._beats(candidate), (
-            "3S should NOT beat 4C (lower rank, even highest suit)"
-        )
+        assert not self.env._beats(candidate), "3S should NOT beat 4C (lower rank, even highest suit)"
 
     def test_single_card_high_cards(self):
         """Test high card comparisons (K, A, 2)."""
@@ -86,31 +82,23 @@ class TestBeatsFunction:
 
         # 2D should not beat 2C (same rank, lower suit)
         candidate = self.create_card_mask(["2D"])
-        assert not self.env._beats(candidate), (
-            "2D should not beat 2C (same rank, lower suit)"
-        )
+        assert not self.env._beats(candidate), "2D should not beat 2C (same rank, lower suit)"
 
-    def test_pair_comparisons(self):
+    def test_pair_comparisons(self) -> None:
         """Test pair vs pair comparisons."""
         # Higher suit pair should beat lower suit pair
         self.set_last_play(["3C", "3D"])
         candidate = self.create_card_mask(["3H", "3S"])
-        assert self.env._beats(candidate), (
-            "Higher suit pair should beat lower suit pair"
-        )
+        assert self.env._beats(candidate), "Higher suit pair should beat lower suit pair"
 
         # Higher rank pair should beat lower rank pair
         candidate = self.create_card_mask(["4C", "4D"])
-        assert self.env._beats(candidate), (
-            "Higher rank pair should beat lower rank pair"
-        )
+        assert self.env._beats(candidate), "Higher rank pair should beat lower rank pair"
 
         # Lower rank pair should not beat higher rank pair
         self.set_last_play(["4C", "4D"])
         candidate = self.create_card_mask(["3H", "3S"])
-        assert not self.env._beats(candidate), (
-            "Lower rank pair should not beat higher rank pair"
-        )
+        assert not self.env._beats(candidate), "Lower rank pair should not beat higher rank pair"
 
         # Ace pair should beat King pair
         self.set_last_play(["KC", "KD"])
@@ -132,25 +120,19 @@ class TestBeatsFunction:
         # Pair should not beat single (wrong number of cards)
         self.set_last_play(["3C"])
         candidate = self.create_card_mask(["4C", "4D"])
-        assert not self.env._beats(candidate), (
-            "Pair should not beat single (wrong number of cards)"
-        )
+        assert not self.env._beats(candidate), "Pair should not beat single (wrong number of cards)"
 
     def test_trips_comparisons(self):
         """Test triple card comparisons."""
         # Higher rank trips should beat lower rank trips
         self.set_last_play(["3C", "3D", "3H"])
         candidate = self.create_card_mask(["4C", "4D", "4H"])
-        assert self.env._beats(candidate), (
-            "Higher rank trips should beat lower rank trips"
-        )
+        assert self.env._beats(candidate), "Higher rank trips should beat lower rank trips"
 
         # Lower rank trips should not beat higher rank trips
         self.set_last_play(["4C", "4D", "4H"])
         candidate = self.create_card_mask(["3C", "3D", "3S"])
-        assert not self.env._beats(candidate), (
-            "Lower rank trips should not beat higher rank trips"
-        )
+        assert not self.env._beats(candidate), "Lower rank trips should not beat higher rank trips"
 
         # Ace trips should beat King trips
         self.set_last_play(["KC", "KD", "KH"])
@@ -174,15 +156,11 @@ class TestBeatsFunction:
         # Pass should be allowed when there's a last play
         self.set_last_play(["4C"])
         pass_mask = np.zeros(52, dtype=bool)  # All False = pass
-        assert self.env._beats(pass_mask), (
-            "Pass should be allowed when there's a last play"
-        )
+        assert self.env._beats(pass_mask), "Pass should be allowed when there's a last play"
 
         # Pass should not be allowed when starting new trick
         self.set_last_play([])  # No last play
-        assert not self.env._beats(pass_mask), (
-            "Pass should NOT be allowed when starting new trick"
-        )
+        assert not self.env._beats(pass_mask), "Pass should NOT be allowed when starting new trick"
 
     def test_new_trick_starts(self):
         """Test starting new tricks (no last play)."""
@@ -190,27 +168,19 @@ class TestBeatsFunction:
 
         # Any single card should be allowed to start new trick
         candidate = self.create_card_mask(["3C"])
-        assert self.env._beats(candidate), (
-            "Any single card should be allowed to start new trick"
-        )
+        assert self.env._beats(candidate), "Any single card should be allowed to start new trick"
 
         # Any pair should be allowed to start new trick
         candidate = self.create_card_mask(["3C", "3D"])
-        assert self.env._beats(candidate), (
-            "Any pair should be allowed to start new trick"
-        )
+        assert self.env._beats(candidate), "Any pair should be allowed to start new trick"
 
         # Any trips should be allowed to start new trick
         candidate = self.create_card_mask(["KC", "KD", "KH"])
-        assert self.env._beats(candidate), (
-            "Any trips should be allowed to start new trick"
-        )
+        assert self.env._beats(candidate), "Any trips should be allowed to start new trick"
 
         # Any 5-card hand should be allowed to start new trick
         candidate = self.create_card_mask(["3C", "4D", "5H", "6S", "7C"])
-        assert self.env._beats(candidate), (
-            "Any 5-card hand should be allowed to start new trick"
-        )
+        assert self.env._beats(candidate), "Any 5-card hand should be allowed to start new trick"
 
     def test_invalid_hands_vs_single(self):
         """Test invalid hand combinations against singles."""
@@ -269,18 +239,14 @@ class TestBeatsFunction:
         # Higher full house should beat lower full house
         self.set_last_play(["3C", "3D", "3H", "4S", "4C"])
         candidate = self.create_card_mask(["4D", "4H", "4S", "5C", "5D"])
-        assert self.env._beats(candidate), (
-            "Higher full house should beat lower full house"
-        )
+        assert self.env._beats(candidate), "Higher full house should beat lower full house"
 
     def test_five_card_four_of_kind(self):
         """Test four of a kind comparisons."""
         # Higher four of a kind should beat lower four of a kind
         self.set_last_play(["3C", "3D", "3H", "3S", "4C"])
         candidate = self.create_card_mask(["4D", "4H", "4S", "4C", "5D"])
-        assert self.env._beats(candidate), (
-            "Higher four of a kind should beat lower four of a kind"
-        )
+        assert self.env._beats(candidate), "Higher four of a kind should beat lower four of a kind"
 
     def test_mixed_card_count_invalid(self):
         """Test that different numbers of cards can't beat each other."""

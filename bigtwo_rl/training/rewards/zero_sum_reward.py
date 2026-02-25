@@ -1,6 +1,6 @@
 """Zero-sum reward function matching the successful Big Two implementation."""
 
-from typing import List, Optional
+
 from .base_reward import BaseReward
 
 
@@ -20,10 +20,10 @@ class ZeroSumReward(BaseReward):
     """
 
     def __init__(self, normalization_factor: float = 5.0):
-        """
-        Args:
-            normalization_factor: Divide rewards by this (reference uses 5.0)
-                                 Results in rewards roughly in range [-2.6, +6.0]
+        """Args:
+        normalization_factor: Divide rewards by this (reference uses 5.0)
+                             Results in rewards roughly in range [-2.6, +6.0]
+
         """
         self.normalization_factor = normalization_factor
 
@@ -32,7 +32,7 @@ class ZeroSumReward(BaseReward):
         winner_player: int,
         player_idx: int,
         cards_left: int,
-        all_cards_left: Optional[List[int]] = None,
+        all_cards_left: list[int] | None = None,
     ) -> float:
         """Pure zero-sum reward structure.
 
@@ -44,6 +44,7 @@ class ZeroSumReward(BaseReward):
 
         Returns:
             Normalized reward value
+
         """
         if all_cards_left is None:
             # Fallback if we don't have full game state
@@ -51,25 +52,19 @@ class ZeroSumReward(BaseReward):
                 # Estimate winner reward (assume others have ~8 cards average)
                 estimated_total = 24  # 3 other players * 8 cards
                 return estimated_total / self.normalization_factor
-            else:
-                return -cards_left / self.normalization_factor
+            return -cards_left / self.normalization_factor
 
         if player_idx == winner_player:
             # Winner gets sum of all other players' remaining cards
-            total_other_cards = sum(
-                all_cards_left[i] for i in range(4) if i != winner_player
-            )
+            total_other_cards = sum(all_cards_left[i] for i in range(4) if i != winner_player)
             return total_other_cards / self.normalization_factor
-        else:
-            # Losers get negative penalty equal to their remaining cards
-            return -cards_left / self.normalization_factor
+        # Losers get negative penalty equal to their remaining cards
+        return -cards_left / self.normalization_factor
 
-    def episode_bonus(
-        self, games_won: int, total_games: int, avg_cards_left: float
-    ) -> float:
+    def episode_bonus(self, games_won: int, total_games: int, avg_cards_left: float) -> float:
         """No episode bonus - keep it simple like the reference implementation."""
         return 0.0
 
-    def move_bonus(self, move_cards: List[int]) -> float:
+    def move_bonus(self, move_cards: list[int]) -> float:
         """No move bonuses - pure zero-sum structure."""
         return 0.0
