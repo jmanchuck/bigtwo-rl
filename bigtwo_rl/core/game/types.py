@@ -79,6 +79,23 @@ class Hand:
     rank_any_bits: int = 0
     slot_of: list[list[int]] = None  # [rank][suit] -> slot or -1
     _derived_built: bool = False
+    
+    def __post_init__(self):
+        """Validate hand data after initialization (only in debug mode)."""
+        import os
+        if os.environ.get('BIGTWO_DEBUG'):
+            if len(self.card) != 13:
+                raise ValueError(f"Hand must have exactly 13 cards, got {len(self.card)}")
+            if len(self.played) != 13:
+                raise ValueError(f"Hand must have exactly 13 played flags, got {len(self.played)}")
+            
+            for i, (card, played) in enumerate(zip(self.card, self.played)):
+                if not isinstance(card, int):
+                    raise TypeError(f"Card at slot {i} must be int, got {type(card)}: {card}")
+                if not isinstance(played, int):
+                    raise TypeError(f"Played flag at slot {i} must be int, got {type(played)}: {played}")
+                if played not in (0, 1):
+                    raise ValueError(f"Played flag at slot {i} must be 0 or 1, got {played}")
 
     def build_derived(self) -> None:
         """Rebuild derived fields from current card/played state."""

@@ -39,8 +39,12 @@ class GreedyAgent(BaseAgent):
         if action_mask is not None:
             legal_actions = np.where(action_mask)[0]
             if len(legal_actions) > 0:
-                # Return first (lowest) legal action
-                return int(legal_actions[0])
+                # Prefer the lowest non-pass action when available.
+                # Action 0 is PASS, which is legal in many states.
+                non_pass = legal_actions[legal_actions != 0]
+                if len(non_pass) > 0:
+                    return int(non_pass[0])
+                return 0
             # No legal actions (shouldn't happen in normal play)
             print("Warning: No legal actions available, returning action 0")
             return 0
@@ -70,8 +74,11 @@ class GreedyAgent(BaseAgent):
         if action_mask is not None:
             legal_actions = np.where(action_mask)[0]
             if len(legal_actions) > 0:
-                # Put all probability on the first (lowest) legal action
-                greedy_action = legal_actions[0]
+                non_pass = legal_actions[legal_actions != 0]
+                if len(non_pass) > 0:
+                    greedy_action = non_pass[0]
+                else:
+                    greedy_action = 0
                 prob_dist[greedy_action] = 1.0
         else:
             # No mask - put probability on action 0

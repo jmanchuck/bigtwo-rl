@@ -2,93 +2,24 @@
 
 import time
 from pathlib import Path
-from typing import Any as TypingAny
+from typing import Any
 
 import torch
+from stable_baselines3.common.callbacks import CallbackList
 
 from bigtwo_rl.training.rewards import DefaultReward
 from bigtwo_rl.training.rewards.base_reward import BaseReward
+from bigtwo_rl.training.multi_player_ppo import MultiPlayerPPO
+from bigtwo_rl.training.self_play_callback import SimpleSelfPlayCallback
 
 # Try to import stable-baselines3 components
 try:
-    from stable_baselines3 import PPO
-    from stable_baselines3.common.callbacks import BaseCallback, EvalCallback
-    from stable_baselines3.common.env_util import make_vec_env
-    from stable_baselines3.common.logger import configure
-    from stable_baselines3.common.policies import ActorCriticPolicy
+    from stable_baselines3.common.callbacks import EvalCallback
 
     SB3_AVAILABLE = True
 except ImportError:
-    # Explicitly annotate Nones to avoid shadowing issues in type checker
-    PPO: TypingAny | None = None
-    make_vec_env: TypingAny | None = None
-    ActorCriticPolicy: TypingAny | None = None
-    EvalCallback: TypingAny | None = None
-    BaseCallback: TypingAny | None = None
-    configure: TypingAny | None = None
+    EvalCallback: Any | None = None
     SB3_AVAILABLE = False
-
-
-class MaskedActorCriticPolicy(ActorCriticPolicy):
-    """Actor-Critic policy with action masking support."""
-
-    def forward(self, obs, deterministic=False, action_masks=None):
-        """Forward pass with optional action masking.
-
-        Args:
-            obs: Observations
-            deterministic: Whether to use deterministic actions
-            action_masks: Boolean masks for legal actions
-
-        Returns:
-            actions, values, log_probs
-
-        """
-        # Get action distribution from policy
-        distribution = self._get_action_dist_from_latent(self._get_latent(obs)[0])
-
-        # Apply action masks if provided
-        if action_masks is not None:
-            # Mask out illegal actions by setting their logits to -inf
-            logits = distribution.distribution.logits
-            masked_logits = torch.where(
-                action_masks,
-                logits,
-                torch.tensor(-float("inf"), device=logits.device, dtype=logits.dtype),
-            )
-
-            # Create new distribution with masked logits
-            from torch.distributions import Categorical
-
-            distribution.distribution = Categorical(logits=masked_logits)
-
-        actions = distribution.get_actions(deterministic=deterministic)
-        values = self.value_net(self._get_latent(obs)[1])
-        log_probs = distribution.log_prob(actions)
-
-        return actions, values, log_probs.reshape(-1, 1)
-
-
-class ActionMaskingWrapper:
-    """Wrapper to provide action masking for the environment."""
-
-    def __init__(self, env):
-        self.env = env
-        self.observation_space = env.observation_space
-        self.action_space = env.action_space
-
-    def reset(self, **kwargs):
-        return self.env.reset(**kwargs)
-
-    def step(self, action):
-        return self.env.step(action)
-
-    def close(self):
-        return self.env.close()
-
-    def get_action_mask(self):
-        """Get action mask from environment."""
-        return self.env.get_action_mask()
 
 
 class Trainer:
@@ -106,6 +37,15 @@ class Trainer:
         n_epochs: int = 10,
         clip_range: float = 0.2,
         device: str = "auto",
+        observation_mode: str = "enhanced",
+        policy_net_arch: dict[str, list[int]] | None = None,
+        n_envs: int = 1,
+        ent_coef: float = 0.005,
+        league_opponent_prob: float = 0.0,
+        snapshot_interval_rollouts: int = 20,
+        snapshot_max_policies: int = 8,
+        anneal_lr: bool = True,
+        anneal_clip: bool = True,
     ):
         """Initialize trainer.
 
@@ -142,6 +82,17 @@ class Trainer:
         self.n_epochs = n_epochs
         self.clip_range = clip_range
         self.device = device
+        if observation_mode != "enhanced":
+            raise ValueError("Only observation_mode='enhanced' is supported")
+        self.observation_mode = observation_mode
+        self.policy_net_arch = policy_net_arch or {"pi": [128, 128], "vf": [128, 128]}
+        self.n_envs = n_envs
+        self.ent_coef = ent_coef
+        self.league_opponent_prob = league_opponent_prob
+        self.snapshot_interval_rollouts = snapshot_interval_rollouts
+        self.snapshot_max_policies = snapshot_max_policies
+        self.anneal_lr = anneal_lr
+        self.anneal_clip = anneal_clip
 
         # Set device
         if device == "auto":
@@ -158,7 +109,17 @@ class Trainer:
             reward_function=self.reward_function,
             num_players=self.num_players,
             games_per_episode=self.games_per_episode,
+            track_move_history=True,
+            observation_mode=self.observation_mode,
         )
+
+    def _make_env_fn(self):
+        """Create environment factory for vectorized envs."""
+
+        def _fn():
+            return self._create_env()
+
+        return _fn
 
     def train(
         self,
@@ -168,7 +129,7 @@ class Trainer:
         save_dir: str = "./models",
         eval_freq: int = 5000,
         verbose: int = 1,
-    ) -> tuple[PPO, str]:
+    ) -> tuple[Any, str]:
         """Train a PPO agent.
 
         Args:
@@ -198,26 +159,42 @@ class Trainer:
         print(f"Model directory: {model_dir}")
         print(f"Log directory: {log_path}")
 
-        # Create environment
-        env = self._create_env()
+        # Create vectorized environment (reference-style parallel games)
+        from stable_baselines3.common.vec_env import DummyVecEnv
+
+        env = DummyVecEnv([self._make_env_fn() for _ in range(max(1, self.n_envs))])
 
         # Create policy with action masking support
-        policy_kwargs = {"activation_fn": torch.nn.ReLU, "net_arch": dict(pi=[128, 128], vf=[128, 128])}
+        policy_kwargs = {"activation_fn": torch.nn.ReLU, "net_arch": self.policy_net_arch}
 
-        # Create PPO model
-        model = PPO(
-            "MlpPolicy",  # Use standard MLP policy for now
+        lr = self.learning_rate
+        if self.anneal_lr:
+            lr_init = self.learning_rate
+            lr = lambda progress: max(1e-6, lr_init * progress)
+
+        clip = self.clip_range
+        if self.anneal_clip:
+            clip_init = self.clip_range
+            clip = lambda progress: clip_init * progress
+
+        # Create PPO model with multi-player rollout handling
+        model = MultiPlayerPPO(
+            "MlpPolicy",
             env,
-            learning_rate=self.learning_rate,
+            learning_rate=lr,
             gamma=self.gamma,
             n_steps=self.n_steps,
             batch_size=self.batch_size,
             n_epochs=self.n_epochs,
-            clip_range=self.clip_range,
+            clip_range=clip,
+            ent_coef=self.ent_coef,
             policy_kwargs=policy_kwargs,
             verbose=verbose,
             device=self.device,
             tensorboard_log=str(log_path),
+            league_opponent_prob=self.league_opponent_prob,
+            snapshot_interval_rollouts=self.snapshot_interval_rollouts,
+            snapshot_max_policies=self.snapshot_max_policies,
         )
 
         print(f"✓ PPO model created with {total_timesteps} timesteps")
@@ -238,8 +215,11 @@ class Trainer:
         print("🚀 Starting training...")
         start_time = time.time()
 
+        self_play_callback = SimpleSelfPlayCallback(verbose=verbose)
+        callbacks = CallbackList([self_play_callback, eval_callback])
+
         # Train the model
-        model.learn(total_timesteps=total_timesteps, callback=eval_callback, progress_bar=True)
+        model.learn(total_timesteps=total_timesteps, callback=callbacks, progress_bar=True)
 
         training_time = time.time() - start_time
         print(f"✅ Training completed in {training_time:.1f} seconds")
@@ -262,12 +242,13 @@ class Trainer:
                 "batch_size": self.batch_size,
                 "n_epochs": self.n_epochs,
                 "clip_range": self.clip_range,
+                "ent_coef": self.ent_coef,
             },
             "environment": {
                 "num_players": self.num_players,
                 "games_per_episode": self.games_per_episode,
                 "action_space": 1365,
-                "observation_space": 168,
+                "observation_space": int(env.observation_space.shape[0]),
             },
         }
 
@@ -286,7 +267,7 @@ def quick_train(
     reward_function: BaseReward | None = None,
     total_timesteps: int = 10000,
     model_name: str = "quick_test",
-) -> tuple[PPO, str]:
+) -> tuple[Any, str]:
     """Quick training function for testing.
 
     Args:

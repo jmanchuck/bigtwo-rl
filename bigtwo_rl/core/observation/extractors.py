@@ -35,14 +35,18 @@ class GameStateExtractor:
             GameState object with extracted information
 
         """
+        player_card_counts = game.get_player_card_counts()
+        is_first_play = (game.last_play is None) and all(c == 13 for c in player_card_counts)
+        has_control = ((game.last_play is None) or (len(game.get_last_played_cards_encoded()) == 0)) and (not is_first_play)
+
         return GameState(
             current_player=game.current_player,
             player_hands=[game.get_player_hand(i) for i in range(game.num_players)],
-            player_card_counts=game.get_player_card_counts(),
+            player_card_counts=player_card_counts,
             last_played_cards=game.get_last_played_cards_encoded(),
             passes=game.passes_in_row,
-            is_first_play=game.is_first_play(),
-            has_control=game.has_control(),
+            is_first_play=is_first_play,
+            has_control=has_control,
         )
 
     @staticmethod

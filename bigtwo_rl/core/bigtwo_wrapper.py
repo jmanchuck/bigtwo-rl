@@ -37,6 +37,7 @@ class BigTwoWrapper(gym.Env):
         num_players: int = 4,
         games_per_episode: int = 10,
         track_move_history: bool = False,
+        observation_mode: str = "enhanced",
     ):
         """Initialize Big Two RL wrapper.
 
@@ -58,6 +59,9 @@ class BigTwoWrapper(gym.Env):
         self.games_per_episode = games_per_episode
         self.reward_function = reward_function
         self.track_move_history = track_move_history
+        if observation_mode != "enhanced":
+            raise ValueError("Only observation_mode='enhanced' is supported")
+        self.observation_mode = observation_mode
 
         # Store config for lazy initialization (multiprocessing-safe)
         # Fixed action space (breaking change!)
@@ -69,8 +73,8 @@ class BigTwoWrapper(gym.Env):
         self.action_masker = ActionMaskBuilder(five_engine)
 
         # Initialize observation space immediately (needed for PPO model creation)
-        # BasicObservationBuilder uses 168 features (52 + 52 + 64)
-        self.observation_space = spaces.Box(low=0, high=1, shape=(168,), dtype=np.float32)
+        obs_size = 412
+        self.observation_space = spaces.Box(low=0, high=1, shape=(obs_size,), dtype=np.float32)
 
         # Lazy initialization for game components (will be created in reset())
         self.game = None
@@ -85,9 +89,19 @@ class BigTwoWrapper(gym.Env):
         # Episode tracking
         self.games_completed = 0
         self.episode_complete = False
+        self.invalid_action_penalty = -1.0
 
         # Model reference for true self-play (set by trainer)
         self._model_reference = None
+
+    def set_model_reference(self, model) -> None:
+        """Set model reference for callbacks/advanced self-play flows."""
+        self._model_reference = model
+
+    def get_current_player(self) -> int:
+        """Expose current player for rollout collectors."""
+        self._ensure_initialized()
+        return int(self.game.current_player)
 
     def _ensure_initialized(self):
         """Ensure game components are initialized (multiprocessing-safe lazy init)."""
@@ -142,6 +156,7 @@ class BigTwoWrapper(gym.Env):
 
         info = {
             "current_player": self.game.current_player,
+            "player_who_moved": None,
             "games_completed": self.games_completed,
             "episode_complete": self.episode_complete,
             "legal_actions_count": np.sum(self.get_action_mask()),
@@ -173,13 +188,24 @@ class BigTwoWrapper(gym.Env):
 
         # Validate action is legal
         action_mask = self.get_action_mask()
+        legal_actions = np.where(action_mask)[0]
         if not action_mask[action_id]:
-            # Force a legal action (for training stability)
-            legal_actions = np.where(action_mask)[0]
-            if len(legal_actions) > 0:
-                action_id = legal_actions[0]  # Take first legal action
-            else:
-                raise ValueError("No legal actions available")
+            # Do not silently rewrite actions; keep policy-action alignment.
+            next_obs = self._get_observation(self.game.current_player)
+            self._current_obs = next_obs
+            info = {
+                "current_player": self.game.current_player,
+                "player_who_moved": current_player,
+                "games_completed": self.games_completed,
+                "episode_complete": self.episode_complete,
+                "action_was_legal": False,
+                "invalid_action": True,
+                "legal_actions_count": len(legal_actions),
+            }
+            return next_obs, float(self.invalid_action_penalty), self.episode_complete, False, info
+
+        if len(legal_actions) == 0:
+            raise RuntimeError("Action mask produced zero legal actions in a non-terminal state")
 
         # Translate action to slot indices and execute directly using Hand API
         slot_indices = self._translate_action_to_game_move(action_id, current_player)
@@ -205,19 +231,21 @@ class BigTwoWrapper(gym.Env):
                 "action": action_id,
                 "reward": player_reward,  # Will be updated with final rewards later
                 "done": self.game.done,
+                "game_index": self.games_completed,
                 "info": {},
                 "legal_moves_count": np.sum(self.get_action_mask()),
             },
         )
 
         # Handle game/episode completion
+        final_rewards = None
         if self.game.done:
-            self._apply_final_rewards()
+            final_rewards = self._apply_final_rewards()
             self.games_completed += 1
 
             if self.games_completed >= self.games_per_episode:
                 self.episode_complete = True
-                return self._finalize_episode()
+                return self._finalize_episode(final_rewards=final_rewards)
             # Start next game
             self.game.reset()
             # obs_vectorizer is no longer used (using direct observation builders)
@@ -228,17 +256,20 @@ class BigTwoWrapper(gym.Env):
 
         info = {
             "current_player": self.game.current_player,
+            "player_who_moved": current_player,
             "games_completed": self.games_completed,
             "episode_complete": self.episode_complete,
             "action_was_legal": action_mask[action_id],
             "legal_actions_count": np.sum(self.get_action_mask()) if not self.episode_complete else 0,
         }
+        if final_rewards is not None:
+            info["final_rewards"] = final_rewards
 
         return next_obs, player_reward, self.episode_complete, False, info
 
     # Complex action execution methods removed - using Hand API directly in step()
 
-    def _apply_final_rewards(self):
+    def _apply_final_rewards(self) -> list[float]:
         """Apply final rewards to all collected experiences when game ends."""
         # Calculate cards left for all players at game end using Hand API
         all_cards_left = self.game.get_player_card_counts()
@@ -267,11 +298,13 @@ class BigTwoWrapper(gym.Env):
                         -0.1 * all_cards_left[i],
                     )  # Penalty for cards left
 
-        # Update experiences with final rewards
+        # Update experiences from the just-finished game with final rewards
         for exp in self.player_experiences:
-            if exp["done"]:  # This experience ended the game
+            if exp.get("game_index") == self.games_completed:
                 player_idx = exp["player"]
                 exp["reward"] = final_rewards[player_idx]
+
+        return final_rewards
 
     def get_action_mask(self) -> np.ndarray:
         """Get 1,365-dimensional legal action mask.
@@ -286,8 +319,10 @@ class BigTwoWrapper(gym.Env):
         # Use Hand API methods directly - no format conversion needed!
         current_hand = self.game.get_player_hand(self.game.current_player)
         last_played_cards = self.game.get_last_played_cards_encoded()
-        is_first_play = self.game.is_first_play()
-        has_control = self.game.has_control()
+        # "First play" should only apply to the initial move of a fresh game.
+        player_card_counts = self.game.get_player_card_counts()
+        is_first_play = (self.game.last_play is None) and all(c == 13 for c in player_card_counts)
+        has_control = ((self.game.last_play is None) or (len(last_played_cards) == 0)) and (not is_first_play)
 
         # Get valid action indices from the action masker
         pass_allowed = not is_first_play  # Can't pass on first play
@@ -321,20 +356,22 @@ class BigTwoWrapper(gym.Env):
             Observation vector for the player
 
         """
-        from .observation import BasicObservationBuilder
+        from .observation import EnhancedObservationBuilder
 
         # Use Hand API methods directly - no format conversion needed!
         player_hand = self.game.get_player_hand(player)
         player_card_counts = self.game.get_player_card_counts()
         last_played_cards = self.game.get_last_played_cards_encoded()
         passes = self.game.passes_in_row
-        is_first_play = self.game.is_first_play()
+        # Keep observation semantics aligned with action masking/eval:
+        # "first play" is only the initial move of a fresh game.
+        is_first_play = (self.game.last_play is None) and all(c == 13 for c in player_card_counts)
 
-        # Use BasicObservationBuilder for now (can be made configurable later)
         if not hasattr(self, "obs_builder"):
-            self.obs_builder = BasicObservationBuilder()
+            self.obs_builder = EnhancedObservationBuilder()
 
-        # Build observation vector
+        can_pass = not is_first_play
+        has_control = ((self.game.last_play is None) or (len(last_played_cards) == 0)) and (not is_first_play)
         obs = self.obs_builder.build_observation(
             hand=player_hand,
             current_player=player,
@@ -342,6 +379,9 @@ class BigTwoWrapper(gym.Env):
             last_played_cards=last_played_cards,
             passes=passes,
             is_first_play=is_first_play,
+            move_history=getattr(self.game, "move_history", None),
+            has_control=has_control,
+            can_pass=can_pass,
         )
 
         return obs
@@ -380,7 +420,7 @@ class BigTwoWrapper(gym.Env):
         """Handle when step is called but episode is already complete."""
         return self._finalize_episode()
 
-    def _finalize_episode(self) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
+    def _finalize_episode(self, final_rewards: list[float] | None = None) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
         """Finalize episode with episode bonus and comprehensive metrics."""
         # Calculate episode bonus using episode manager
         episode_bonus = float(
@@ -401,6 +441,8 @@ class BigTwoWrapper(gym.Env):
             "multi_player_experiences": self.player_experiences,  # All experiences for training
             **episode_metrics,  # Include all Big Two metrics for logging
         }
+        if final_rewards is not None:
+            info["final_rewards"] = final_rewards
 
         return dummy_obs, episode_bonus, True, False, info
 

@@ -1,6 +1,6 @@
 """Observation space module for Big Two game."""
 
-from .basic_builder import BasicObservationBuilder
+from .enhanced_builder import EnhancedObservationBuilder
 from .extractors import (
     GameState,
     GameStateExtractor,
@@ -11,8 +11,8 @@ from .observation_builder import ObservationBuilder
 __all__ = [
     # Abstract base class
     "ObservationBuilder",
-    # Observation builder implementations
-    "BasicObservationBuilder",
+    # Observation builder implementation
+    "EnhancedObservationBuilder",
     # Utilities
     "GameState",
     "GameStateExtractor",

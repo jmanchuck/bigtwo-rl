@@ -5,7 +5,7 @@ A reinforcement learning library for training and evaluating AI agents that play
 Main components:
 - bigtwo_rl.core: Game environment and RL wrapper (1,365-action space)
 - bigtwo_rl.agents: Agent implementations (PPO, Random, Greedy baselines)
-- bigtwo_rl.training: Training infrastructure with configurable rewards/hyperparams
+- bigtwo_rl.training: Training infrastructure with configurable rewards
 - bigtwo_rl.evaluation: Tournament system and evaluation tools
 """
 

@@ -10,12 +10,14 @@ from .base_agent import BaseAgent
 try:
     from stable_baselines3 import PPO
     from stable_baselines3.common.policies import ActorCriticPolicy
+    from sb3_contrib import MaskablePPO
 
     SB3_AVAILABLE = True
 except ImportError:
     # Explicitly annotate to avoid shadowing type checker errors
     PPO: Any | None = None
     ActorCriticPolicy: Any | None = None
+    MaskablePPO: Any | None = None
     SB3_AVAILABLE = False
 
 
@@ -26,7 +28,13 @@ class PPOAgent(BaseAgent):
     Requires models trained specifically for the 1,365-action space.
     """
 
-    def __init__(self, model_path: str, name: str = "PPOAgent", deterministic: bool = True):
+    def __init__(
+        self,
+        model_path: str,
+        name: str = "PPOAgent",
+        deterministic: bool = True,
+        deterministic_strategy: str = "nonpass_argmax",
+    ):
         """Initialize PPO agent with trained model.
 
         Args:
@@ -42,6 +50,7 @@ class PPOAgent(BaseAgent):
 
         self.model_path = Path(model_path)
         self.deterministic = deterministic
+        self.deterministic_strategy = deterministic_strategy
         # Annotate as Any to satisfy type checker when SB3 not installed
         self.model: Any = None
 
@@ -54,7 +63,23 @@ class PPOAgent(BaseAgent):
             raise FileNotFoundError(f"Model not found at {self.model_path}")
 
         try:
-            self.model = PPO.load(self.model_path)
+            # Try MaskablePPO first (current training path), then standard PPO.
+            load_errors = []
+            if MaskablePPO is not None:
+                try:
+                    self.model = MaskablePPO.load(self.model_path)
+                except Exception as e:
+                    load_errors.append(f"MaskablePPO: {e}")
+
+            if self.model is None:
+                try:
+                    self.model = PPO.load(self.model_path)
+                except Exception as e:
+                    load_errors.append(f"PPO: {e}")
+
+            if self.model is None:
+                raise RuntimeError("; ".join(load_errors))
+
             print(f"✓ Loaded PPO model from {self.model_path}")
 
             # Verify action space
@@ -96,35 +121,41 @@ class PPOAgent(BaseAgent):
             try:
                 # Use the policy to get action probabilities
                 obs_tensor = self.model.policy.obs_to_tensor(observation.reshape(1, -1))[0]
+                self.model.policy.set_training_mode(False)
+                distribution = self.model.policy.get_distribution(obs_tensor)
 
-                with self.model.policy.set_training_mode(False):
-                    distribution = self.model.policy.get_distribution(obs_tensor)
+                if self.deterministic:
+                    # Get the most likely action among legal actions
+                    action_logits = distribution.distribution.logits.detach().cpu().numpy()[0]
 
-                    if self.deterministic:
-                        # Get the most likely action among legal actions
-                        action_logits = distribution.distribution.logits.detach().cpu().numpy()[0]
-
-                        # Mask out illegal actions by setting their logits to -inf
+                    if self.deterministic_strategy == "nonpass_argmax":
+                        # Avoid pathological always-pass policies by preferring the
+                        # highest-scoring non-pass when one exists.
+                        non_pass_legal = legal_actions[legal_actions != 0]
+                        if len(non_pass_legal) > 0:
+                            action = int(non_pass_legal[np.argmax(action_logits[non_pass_legal])])
+                        else:
+                            action = 0
+                    else:
+                        # Default deterministic argmax over all legal actions
                         masked_logits = np.full(1365, -np.inf)
                         masked_logits[legal_actions] = action_logits[legal_actions]
-
-                        # Select action with highest masked logit
                         action = int(np.argmax(masked_logits))
+                else:
+                    # Sample from masked distribution
+                    action_probs = distribution.distribution.probs.detach().cpu().numpy()[0]
+
+                    # Create masked probability distribution
+                    masked_probs = np.zeros(1365)
+                    masked_probs[legal_actions] = action_probs[legal_actions]
+
+                    # Renormalize
+                    if np.sum(masked_probs) > 0:
+                        masked_probs = masked_probs / np.sum(masked_probs)
+                        action = int(np.random.choice(1365, p=masked_probs))
                     else:
-                        # Sample from masked distribution
-                        action_probs = distribution.distribution.probs.detach().cpu().numpy()[0]
-
-                        # Create masked probability distribution
-                        masked_probs = np.zeros(1365)
-                        masked_probs[legal_actions] = action_probs[legal_actions]
-
-                        # Renormalize
-                        if np.sum(masked_probs) > 0:
-                            masked_probs = masked_probs / np.sum(masked_probs)
-                            action = int(np.random.choice(1365, p=masked_probs))
-                        else:
-                            # Fallback to uniform random among legal actions
-                            action = int(np.random.choice(legal_actions))
+                        # Fallback to uniform random among legal actions
+                        action = int(np.random.choice(legal_actions))
 
                 return action
 
@@ -160,10 +191,9 @@ class PPOAgent(BaseAgent):
         try:
             # Get policy distribution
             obs_tensor = self.model.policy.obs_to_tensor(observation.reshape(1, -1))[0]
-
-            with self.model.policy.set_training_mode(False):
-                distribution = self.model.policy.get_distribution(obs_tensor)
-                action_probs = distribution.distribution.probs.detach().cpu().numpy()[0]
+            self.model.policy.set_training_mode(False)
+            distribution = self.model.policy.get_distribution(obs_tensor)
+            action_probs = distribution.distribution.probs.detach().cpu().numpy()[0]
 
             # Apply action mask if provided
             if action_mask is not None:
@@ -198,7 +228,12 @@ class PPOAgent(BaseAgent):
 
 
 # Convenience function for creating PPO agents
-def load_ppo_agent(model_path: str, name: str | None = None, deterministic: bool = True) -> PPOAgent:
+def load_ppo_agent(
+    model_path: str,
+    name: str | None = None,
+    deterministic: bool = True,
+    deterministic_strategy: str = "nonpass_argmax",
+) -> PPOAgent:
     """Load a trained PPO agent from file.
 
     Args:
@@ -213,4 +248,4 @@ def load_ppo_agent(model_path: str, name: str | None = None, deterministic: bool
     if name is None:
         name = Path(model_path).stem
 
-    return PPOAgent(model_path, name, deterministic)
+    return PPOAgent(model_path, name, deterministic, deterministic_strategy=deterministic_strategy)

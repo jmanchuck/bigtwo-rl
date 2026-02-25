@@ -187,12 +187,12 @@ class TestActionMaskBuilder:
 class TestObservationIntegration:
     """Test observation space integration."""
 
-    def test_basic_observation_builder_import(self):
-        """Test that observation builder can be imported."""
-        from bigtwo_rl.core.observation import BasicObservationBuilder
-        builder = BasicObservationBuilder()
+    def test_enhanced_observation_builder_import(self):
+        """Test that enhanced observation builder can be imported."""
+        from bigtwo_rl.core.observation import EnhancedObservationBuilder
+        builder = EnhancedObservationBuilder()
         assert builder is not None
-        assert builder.observation_size == 168
+        assert builder.observation_size == 412
 
 
 class TestEngines:
