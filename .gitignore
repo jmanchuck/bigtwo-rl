@@ -17,3 +17,4 @@ models/
 uv.lock
 *.pyc
 */__pycache__/
+build
